@@ -1,3 +1,4 @@
+from bot_config import BotConfig
 from curry_quest.controller import Controller
 from discord import Message, User
 import discord_helpers
@@ -8,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class CurryQuest:
-    def __init__(self, controller: Controller, bot_config: dict):
+    def __init__(self, controller: Controller, bot_config: BotConfig):
         self._controller = controller
         self._bot_config = bot_config
         self._send_admin_message = lambda _: None

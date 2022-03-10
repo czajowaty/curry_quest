@@ -15,7 +15,7 @@ class CurryQuestDiscordClient(discord.Client):
         super().__init__()
         self._bot_config = bot_config
         curry_quest_controller = CurryQuestController(curry_quest_config, StateFilesHandler(state_files_directory))
-        self._curry_quest_client = CurryQuest(curry_quest_controller, curry_quest_config)
+        self._curry_quest_client = CurryQuest(curry_quest_controller, bot_config)
 
     async def on_ready(self):
         logger.info(f"Logged in as {self.user.name}.")

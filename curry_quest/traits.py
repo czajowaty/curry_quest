@@ -73,11 +73,11 @@ class SpellCastContext:
 
     @property
     def target_name(self) -> str:
-        return self.target.name if self.is_used_by_familiar() else 'you'
+        return 'you' if self.is_used_on_familiar() else self.target.name
 
     @property
     def target_have_verb(self) -> str:
-        return 'has' if self.is_used_by_familiar() else 'have'
+        return 'have' if self.is_used_on_familiar() else 'has'
 
 
 class CastSpellHandler(ABC):
