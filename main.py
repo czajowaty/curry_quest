@@ -18,13 +18,13 @@ class CurryQuestDiscordClient(discord.Client):
         self._curry_quest_client = CurryQuest(curry_quest_controller, curry_quest_config)
 
     async def on_ready(self):
-        logger.info(f"Logged in as f{self.user.name}.")
-        curry_quest_channel = self.get_channel(self._curry_quest_config.channel_id)
-        curry_quest_admin_channel = self.get_channel(self._curry_quest_config.admin_channel_id)
+        logger.info(f"Logged in as {self.user.name}.")
+        curry_quest_channel = self.get_channel(self._bot_config.channel_id)
+        curry_quest_admin_channel = self.get_channel(self._bot_config.admin_channel_id)
         logger.info(f"Curry quest channel: {curry_quest_channel.name}")
         logger.info(f"Curry quest admin channel: {curry_quest_admin_channel.name}")
         curry_quest_admins = []
-        for admin_id in self._curry_quest_config.admins:
+        for admin_id in self._bot_config.admins:
             user = await self.fetch_user(admin_id)
             if user is None:
                 logger.warning(f"Admin with ID {admin_id} does not exist.")
