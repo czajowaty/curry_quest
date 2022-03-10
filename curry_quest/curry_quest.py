@@ -1,4 +1,4 @@
-from curry_quest.controller import Controller, Config
+from curry_quest.controller import Controller
 from discord import Message, User
 import discord_helpers
 import logging
@@ -8,9 +8,9 @@ logger = logging.getLogger(__name__)
 
 
 class CurryQuest:
-    def __init__(self, controller: Controller, config: Config):
+    def __init__(self, controller: Controller, bot_config: dict):
         self._controller = controller
-        self._config = config
+        self._bot_config = bot_config
         self._send_admin_message = lambda _: None
 
     def start(self, send_message_function, send_admin_message_function):
@@ -20,7 +20,8 @@ class CurryQuest:
 
     def is_curry_quest_message(self, message: Message):
         message_channel_id = self._message_channel_id(message)
-        return message_channel_id == self._config.channel_id or message_channel_id == self._config.admin_channel_id
+        return message_channel_id == self._bot_config.channel_id or \
+            message_channel_id == self._bot_config.admin_channel_id
 
     def _message_channel_id(self, message: Message):
         return message.channel.id
@@ -48,7 +49,7 @@ class CurryQuest:
         return command, args, player_id
 
     def _is_admin_message(self, message: Message):
-        return self._message_channel_id(message) == self._config.admin_channel_id
+        return self._message_channel_id(message) == self._bot_config.admin_channel_id
 
     def _process_admin_message(self, player_id, command, args):
         if not self._is_admin(player_id):
@@ -74,7 +75,7 @@ class CurryQuest:
         return int(match.group(1)), args[1:]
 
     def _is_admin(self, player_id):
-        return player_id in self._config.admins
+        return player_id in self._bot_config.admins
 
     def _process_user_message(self, player_id, command, args):
         if command == 'join':

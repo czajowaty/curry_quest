@@ -7,7 +7,7 @@ from curry_quest.inventory import Inventory
 from curry_quest.unit import Unit
 from curry_quest.state_machine_action import StateMachineAction
 from curry_quest.talents import Talents
-from curry_quest.traits import UnitTraits
+from curry_quest.traits import UnitTraits, SpellCastContext
 from curry_quest.unit_creator import UnitCreator
 from curry_quest.items import Item
 
@@ -178,6 +178,17 @@ class StateMachineContext:
         if not self.is_in_battle():
             raise InvalidOperation(f'Battle not started')
         self.clear_battle_context()
+
+    def create_spell_cast_context(self, caster: Unit, other_unit: Unit) -> SpellCastContext:
+        if not caster.has_spell():
+            raise InvalidOperation(f'{caster.name} does not have a spell')
+        spell_cast_context = SpellCastContext()
+        spell_cast_context.caster = caster
+        target = caster.spell.select_target(caster, other_unit)
+        spell_cast_context.target = target
+        spell_cast_context.other_than_target = other_unit if target is caster else caster
+        spell_cast_context.state_machine_context = self
+        return spell_cast_context
 
     def generate_floor_monster(self, floor: int, level_increase: int=0) -> Unit:
         highest_floor = self.game_config.highest_floor

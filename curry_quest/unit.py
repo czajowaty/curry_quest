@@ -2,7 +2,7 @@ import logging
 from curry_quest.config import Config
 from curry_quest.errors import InvalidOperation
 from curry_quest.genus import Genus
-from curry_quest.spell import Spell
+from curry_quest.spell import Spell, Spells
 from curry_quest.talents import Talents
 from curry_quest.traits import SpellTraits, UnitTraits
 from curry_quest.stats_calculator import StatsCalculator
@@ -26,9 +26,11 @@ class Unit:
         self.attack = traits.base_attack
         self.defense = traits.base_defense
         self.luck = traits.base_luck
+        self._timed_statuses = {}
         self.clear_statuses()
-        if traits.native_spell_traits is not None:
-            self.set_spell(traits.native_spell_traits, self.level)
+        if traits.native_spell_base_name is not None:
+            native_spell_traits = Spells.find_spell_traits(traits.native_spell_base_name, self.genus)
+            self.set_spell(native_spell_traits, self.level)
         else:
             self.clear_spell()
         self.exp = 0
@@ -61,6 +63,9 @@ class Unit:
     def level(self, value):
         self._level = value
 
+    def is_min_level(self) -> bool:
+        return self.level <= 1
+
     def is_max_level(self) -> bool:
         return self.level >= self._levels.max_level
 
@@ -75,7 +80,7 @@ class Unit:
 
     @max_hp.setter
     def max_hp(self, value):
-        self._max_hp = value
+        self._max_hp = max(value, 1)
 
     @property
     def hp(self):
@@ -83,7 +88,7 @@ class Unit:
 
     @hp.setter
     def hp(self, value):
-        self._hp = value
+        self._hp = max(value, 0)
 
     def is_hp_at_max(self) -> bool:
         return self.hp >= self.max_hp
@@ -91,13 +96,12 @@ class Unit:
     def is_dead(self) -> bool:
         return self.hp <= 0
 
-    def restore_hp(self):
-        self.hp = self.max_hp
+    def restore_hp(self, recovery_amount=None):
+        recovery_amount = recovery_amount or self.max_hp
+        self.hp = min(self.hp + recovery_amount, self.max_hp)
 
     def deal_damage(self, damage):
         self.hp -= damage
-        if self.hp < 0:
-            self.hp = 0
 
     @property
     def max_mp(self):
@@ -106,7 +110,7 @@ class Unit:
 
     @max_mp.setter
     def max_mp(self, value):
-        self._max_mp = value
+        self._max_mp = max(value, 0)
 
     @property
     def mp(self):
@@ -114,7 +118,7 @@ class Unit:
 
     @mp.setter
     def mp(self, value):
-        self._mp = value
+        self._mp = max(value, 0)
 
     def is_mp_at_max(self) -> bool:
         return self.mp >= self.max_mp
@@ -124,10 +128,8 @@ class Unit:
 
     def use_mp(self, mp_usage):
         if self.talents.has(Talents.MpConsumptionDecreased):
-            mp_usage -= mp_usage // 2
+            mp_usage //= 2
         self.mp -= mp_usage
-        if self.mp < 0:
-            self.mp = 0
 
     @property
     def attack(self):
@@ -136,7 +138,7 @@ class Unit:
 
     @attack.setter
     def attack(self, value):
-        self._attack = value
+        self._attack = max(value, 1)
 
     @property
     def defense(self):
@@ -145,7 +147,7 @@ class Unit:
 
     @defense.setter
     def defense(self, value):
-        self._defense = value
+        self._defense = max(value, 1)
 
     @property
     def luck(self):
@@ -153,7 +155,7 @@ class Unit:
 
     @luck.setter
     def luck(self, value):
-        self._luck = value
+        self._luck = max(value, 0)
 
     def _stat_factor(self) -> float:
         STAT_BOOST_FACTOR = 0.5
@@ -168,17 +170,46 @@ class Unit:
     def has_status(self, status: Statuses) -> bool:
         return (self._statuses & status) == status
 
+    def status_duration(self, statuses: Statuses) -> dict[Statuses, int]:
+        return dict(
+            (status, self._timed_statuses[status])
+            for status
+            in list(Statuses)
+            if statuses & status)
+
     def has_boosted_stats(self) -> bool:
         return self.has_status(Statuses.StatsBoost)
 
     def set_status(self, status: Statuses):
         self._statuses |= status
 
+    def set_timed_status(self, statuses: Statuses, duration: int):
+        self.set_status(statuses)
+        for status in list(Statuses):
+            if statuses & status:
+                self._timed_statuses[status] = duration
+
+    def decrease_timed_status_counters(self):
+        cleared_statuses_list = []
+        cleared_statuses_mask = Statuses(0)
+        for status, duration in self._timed_statuses.items():
+            if duration > 1:
+                self._timed_statuses[status] -= 1
+            else:
+                cleared_statuses_list.append(status)
+                cleared_statuses_mask |= status
+        self.clear_status(cleared_statuses_mask)
+        return cleared_statuses_list
+
     def clear_statuses(self):
         self._statuses = Statuses(0)
+        self._timed_statuses.clear()
 
-    def clear_status(self, status: Statuses):
-        self._statuses &= ~status
+    def clear_status(self, statuses: Statuses):
+        self._statuses &= ~statuses
+        for status in list(Statuses):
+            if statuses & status:
+                del self._timed_statuses[status]
 
     @property
     def spell(self) -> Spell:
@@ -239,6 +270,21 @@ class Unit:
         self._talents = self.traits.talents | other.traits.talents
         if self.genus.is_weak_against(other.genus):
             self._genus = other.genus
+        self._handle_spell_on_fusion(other)
+
+    def _handle_spell_on_fusion(self, other: '__class__'):
+        if self.has_spell():
+            return
+        spell_traits = self._select_fusion_spell_traits(other)
+        if spell_traits is None:
+            return
+        self.set_spell(spell_traits, level=self.level)
+
+    def _select_fusion_spell_traits(self, other: '__class__'):
+        if other.has_spell():
+            return other._spell_traits
+        else:
+            return Spells.find_spell_traits(self.traits.dormant_spell_base_name, self.genus)
 
     def does_evolve(self) -> bool:
         return self.traits.does_evolve()
@@ -249,50 +295,79 @@ class Unit:
         self._traits = evolved_unit_traits
         self.name = evolved_unit_traits.name
 
+    class StatsChange:
+        def __init__(self):
+            self.hp = 0
+            self.mp = 0
+            self.attack = 0
+            self.defense = 0
+            self.luck = 0
+
+        def __mul__(self, multiplier):
+            self.hp *= multiplier
+            self.mp *= multiplier
+            self.attack *= multiplier
+            self.defense *= multiplier
+            self.luck *= multiplier
+
+        def apply(self, unit, multiplier):
+            unit.hp = max(unit._hp + self.hp * multiplier, 1)
+            unit.max_hp = unit._max_hp + self.hp * multiplier
+            unit.mp = unit._mp + self.mp * multiplier
+            unit.max_mp = unit._max_mp + self.mp * multiplier
+            unit.attack = unit._attack + self.attack * multiplier
+            unit.defense = unit._defense + self.defense * multiplier
+            unit.luck = unit._luck + self.luck * multiplier
+
+        @classmethod
+        def for_level(cls, stats_calculator, level):
+            stats_change = cls()
+            stats_change.hp = stats_calculator.hp_increase(level)
+            stats_change.mp = stats_calculator.mp_increase(level)
+            stats_change.attack = stats_calculator.attack_increase(level)
+            stats_change.defense = stats_calculator.defense_increase(level)
+            stats_change.luck = stats_calculator.luck_increase(level)
+            return stats_change
+
+    def _stats_calculator(self) -> StatsCalculator:
+        return StatsCalculator(self.traits)
+
     def _level_up(self):
         are_stats_boosted = self.has_boosted_stats()
         if are_stats_boosted:
             self.clear_status(Statuses.StatsBoost)
         self.level += 1
-        self._increase_hp_on_level_up()
-        self._increase_mp_on_level_up()
-        self._increase_attack_on_level_up()
-        self._increase_defense_on_level_up()
-        self._increase_luck_on_level_up()
+        self.StatsChange.for_level(self._stats_calculator(), self.level).apply(self, multiplier=1)
         self._increase_spell_level_on_level_up()
         if are_stats_boosted:
             self.set_status(Statuses.StatsBoost)
 
-    def _increase_hp_on_level_up(self):
-        hp_increase = self._stats_calculator().hp_increase(self.level)
-        self._max_hp += hp_increase
-        self._hp += hp_increase
-
-    def _increase_mp_on_level_up(self):
-        mp_increase = self._stats_calculator().mp_increase(self.level)
-        self._max_mp += mp_increase
-        self._mp += mp_increase
-
-    def _increase_attack_on_level_up(self):
-        self._attack += self._stats_calculator().attack_increase(self.level)
-
-    def _increase_defense_on_level_up(self):
-        self._defense += self._stats_calculator().defense_increase(self.level)
-
-    def _increase_luck_on_level_up(self):
-        self._luck += self._stats_calculator().luck_increase(self.level)
-
     def _increase_spell_level_on_level_up(self):
         if not self.has_spell():
             return
-        if self._spell_traits.genus != self.genus:
+        if self.genus != self._spell_traits.native_genus:
             return
         self._spell_level += 1
         if self._spell_level < self.level:
             self._spell_level += 1
 
-    def _stats_calculator(self) -> StatsCalculator:
-        return StatsCalculator(self.traits)
+    def decrease_level(self):
+        if self.is_min_level():
+            return
+        are_stats_boosted = self.has_boosted_stats()
+        if are_stats_boosted:
+            self.clear_status(Statuses.StatsBoost)
+        self.StatsChange.for_level(self._stats_calculator(), self.level).apply(self, multiplier=-1)
+        self._decrease_spell_level_on_level_down()
+        self.level -= 1
+        if are_stats_boosted:
+            self.set_status(Statuses.StatsBoost)
+
+    def _decrease_spell_level_on_level_down(self):
+        if not self.has_spell():
+            return
+        if self._spell_level > 1:
+            self._spell_level -= 1
 
     def to_string(self) -> str:
         return f'{self.name} - {self.stats_to_string()}'
@@ -323,4 +398,10 @@ class Unit:
             return ', '.join(talent.name for talent in Talents.all() if self.talents.has(talent))
 
     def _statuses_to_string(self) -> str:
-        return ', '.join(status.name for status in Statuses if self.has_status(status))
+        return ', '.join(self._status_to_string(status) for status in Statuses if self.has_status(status))
+
+    def _status_to_string(self, status: Statuses):
+        status_string = status.name
+        if status in self._timed_statuses:
+            status_string += f'({self._timed_statuses[status]})'
+        return status_string

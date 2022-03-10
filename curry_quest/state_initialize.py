@@ -33,7 +33,9 @@ class StateInitialize(StateWithMonster):
     def _generate_familiar(self):
         monsters_traits = self._context.game_config.monsters_traits
         familiar_name = self._monster_name or self._context.rng.choice(list(monsters_traits.keys()))
-        familiar = UnitCreator(monsters_traits[familiar_name]).create(level=1, levels=self.game_config.levels)
+        monster_level = self._monster_level or 1
+        familiar = UnitCreator(monsters_traits[familiar_name]) \
+            .create(level=monster_level, levels=self.game_config.levels)
         self._context.familiar = familiar
 
     def _set_start_inventory(self):

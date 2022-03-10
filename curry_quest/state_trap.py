@@ -22,14 +22,14 @@ class StateTrapEvent(StateBase):
     def _familiar(self) -> Unit:
         return self._context.familiar
 
-    def _handle_poison_trap(self):
-        poison_hp_fraction = 0.2
-        lost_hp = int(self._familiar().hp * poison_hp_fraction)
+    def _handle_slam_trap(self):
+        slam_hp_fraction = 0.2
+        lost_hp = int(self._familiar().hp * slam_hp_fraction)
         lost_hp = max(lost_hp, 1)
         if lost_hp >= self._familiar().hp:
             lost_hp = self._familiar(). hp - 1
         self._familiar().deal_damage(lost_hp)
-        return commands.EVENT_FINISHED, f'Noxious fumes fill your lungs. You lose {lost_hp} HP.'
+        return commands.EVENT_FINISHED, f'A rock falls from above. You lose {lost_hp} HP.'
 
     def _handle_sleep_trap(self):
         self._familiar().set_status(Statuses.Sleep)
@@ -46,21 +46,16 @@ class StateTrapEvent(StateBase):
     def _handle_go_up_trap(self):
         return commands.GO_UP, 'A giant spring throws you up to the next floor.'
 
-    def _handle_paralyze_trap(self):
-        self._familiar().set_status(Statuses.Paralyze)
-        return commands.EVENT_FINISHED, 'Your muscles tighten up. Movement is difficult.'
-
     def _handle_blinder_trap(self):
-        self._familiar().set_status(Statuses.Blind)
+        self._familiar().set_timed_status(Statuses.Blind, duration=4)
         return commands.EVENT_FINISHED, 'Your eyes get cloudy and you\'re unable to see.'
 
     TRAPS = {
-        'Poison': _handle_poison_trap,
+        'Slam': _handle_slam_trap,
         'Sleep': _handle_sleep_trap,
         'Upheaval': _handle_upheaval_trap,
         'Crack': _handle_crack_trap,
         'Go up': _handle_go_up_trap,
-        'Paralyze': _handle_paralyze_trap,
         'Blinder': _handle_blinder_trap
     }
 

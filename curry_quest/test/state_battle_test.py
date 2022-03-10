@@ -5,12 +5,12 @@ from curry_quest.config import Config
 from curry_quest.errors import InvalidOperation
 from curry_quest.spell import Spell
 from curry_quest.state_battle import StateBattleEvent, StateStartBattle, StateBattlePreparePhase, StateBattleApproach, \
-    StateBattlePhase, StateEnemyStats, StateBattleAttack, StateBattleUseSpell, StateBattleUseItem, \
-    StateBattleTryToFlee, StateBattleEnemyTurn, DamageRoll, RelativeHeight
+    StateBattlePhase, StateEnemyStats, StateBattleSkipTurn, StateBattleAttack, StateBattleUseSpell, \
+    StateBattleUseItem, StateBattleTryToFlee, StateBattleEnemyTurn, DamageRoll, RelativeHeight
 from curry_quest.state_machine_context import StateMachineContext, BattleContext
 from curry_quest.statuses import Statuses
 from curry_quest.talents import Talents
-from curry_quest.traits import SpellTraits, UnitTraits
+from curry_quest.traits import SpellTraits, UnitTraits, CastSpellHandler, SpellCastContext
 from curry_quest.unit import Unit
 
 
@@ -20,11 +20,20 @@ class StateBattleTestBase(unittest.TestCase):
         self._context = create_autospec(spec=StateMachineContext)
         self._rng = Mock()
         type(self._context).rng = PropertyMock(return_value=self._rng)
+        self._context.random_selection_with_weights.side_effect = self._select_key_with_greatest_value
         self._responses = []
         self._context.add_response.side_effect = lambda response: self._responses.append(response)
         type(self._context).game_config = PropertyMock(return_value=self._game_config)
         self._battle_context = create_autospec(spec=BattleContext)
         type(self._context).battle_context = PropertyMock(return_value=self._battle_context)
+
+    def _select_key_with_greatest_value(self, d):
+        selected_key, greatest_value = next(iter(d.items()))
+        for key, value in d.items():
+            if value > greatest_value:
+                selected_key = key
+                greatest_value = value
+        return selected_key
 
     def _test_on_enter(self, *args):
         state = self._create_state(*args)
@@ -175,7 +184,7 @@ class StateBattlePreparePhaseTest(StateBattleTestBase):
         self._test_on_enter()
         self._context.generate_action.assert_not_called()
 
-    def test_when_familiar_does_not_have_sleep_status_and_prepare_phase_turn_is_used_then_prepare_phase_counter_is_decreased(self):
+    def test_when_familiar_does_not_have_sleep_status_and_prepare_phase_turn_is_used_then_prepare_phase_counter_is_decreased(self):  # pylint: disable=E501
         self._test_on_enter(turn_used=True)
         self._battle_context.dec_prepare_phase_counter.assert_called_once()
 
@@ -332,6 +341,204 @@ class StateBattlePhaseTest(StateBattleTestBase):
         self._test_battle_not_finished(is_player_turn=True)
         self.assertTrue(self._battle_context.is_holy_scroll_active())
 
+    def test_response_on_blind_status_clearing_for_familiar(self):
+        self._familiar.set_timed_status(Statuses.Blind, duration=1)
+        self._test_battle_not_finished(is_player_turn=False)
+        self._assert_responses('You are no longer blind.')
+
+    def test_response_on_blind_status_clearing_for_monster(self):
+        self._enemy.name = 'enemy_unit'
+        self._enemy.set_timed_status(Statuses.Blind, duration=1)
+        self._test_battle_not_finished(is_player_turn=True)
+        self._assert_responses('Enemy_unit is no longer blind.')
+
+    def test_response_on_poison_status_clearing_for_familiar(self):
+        self._familiar.set_timed_status(Statuses.Poison, duration=1)
+        self._test_battle_not_finished(is_player_turn=False)
+        self._assert_responses('You are no longer poisoned.')
+
+    def test_response_on_poison_status_clearing_for_monster(self):
+        self._enemy.name = 'enemy_unit'
+        self._enemy.set_timed_status(Statuses.Poison, duration=1)
+        self._test_battle_not_finished(is_player_turn=True)
+        self._assert_responses('Enemy_unit is no longer poisoned.')
+
+    def test_response_on_confuse_status_clearing_for_familiar(self):
+        self._familiar.set_timed_status(Statuses.Confuse, duration=1)
+        self._test_battle_not_finished(is_player_turn=False)
+        self._assert_responses('You are no longer confused.')
+
+    def test_response_on_confuse_status_clearing_for_monster(self):
+        self._enemy.name = 'enemy_unit'
+        self._enemy.set_timed_status(Statuses.Confuse, duration=1)
+        self._test_battle_not_finished(is_player_turn=True)
+        self._assert_responses('Enemy_unit is no longer confused.')
+
+    def test_response_on_fire_protection_status_clearing_for_familiar(self):
+        self._familiar.set_timed_status(Statuses.FireProtection, duration=1)
+        self._test_battle_not_finished(is_player_turn=False)
+        self._assert_responses('You no longer have protection of fire.')
+
+    def test_response_on_fire_protection_status_clearing_for_monster(self):
+        self._enemy.name = 'enemy_unit'
+        self._enemy.set_timed_status(Statuses.FireProtection, duration=1)
+        self._test_battle_not_finished(is_player_turn=True)
+        self._assert_responses('Enemy_unit no longer has protection of fire.')
+
+    def test_response_on_water_protection_status_clearing_for_familiar(self):
+        self._familiar.set_timed_status(Statuses.WaterProtection, duration=1)
+        self._test_battle_not_finished(is_player_turn=False)
+        self._assert_responses('You no longer have protection of water.')
+
+    def test_response_on_water_protection_status_clearing_for_monster(self):
+        self._enemy.name = 'enemy_unit'
+        self._enemy.set_timed_status(Statuses.WaterProtection, duration=1)
+        self._test_battle_not_finished(is_player_turn=True)
+        self._assert_responses('Enemy_unit no longer has protection of water.')
+
+    def test_response_on_wind_protection_status_clearing_for_familiar(self):
+        self._familiar.set_timed_status(Statuses.WindProtection, duration=1)
+        self._test_battle_not_finished(is_player_turn=False)
+        self._assert_responses('You no longer have protection of wind.')
+
+    def test_response_on_wind_protection_status_clearing_for_monster(self):
+        self._enemy.name = 'enemy_unit'
+        self._enemy.set_timed_status(Statuses.WindProtection, duration=1)
+        self._test_battle_not_finished(is_player_turn=True)
+        self._assert_responses('Enemy_unit no longer has protection of wind.')
+
+    def test_response_on_fire_reflect_status_clearing_for_familiar(self):
+        self._familiar.set_timed_status(Statuses.FireReflect, duration=1)
+        self._test_battle_not_finished(is_player_turn=False)
+        self._assert_responses('You no longer reflect fire spells.')
+
+    def test_response_on_fire_reflect_status_clearing_for_monster(self):
+        self._enemy.name = 'enemy_unit'
+        self._enemy.set_timed_status(Statuses.FireReflect, duration=1)
+        self._test_battle_not_finished(is_player_turn=True)
+        self._assert_responses('Enemy_unit no longer reflects fire spells.')
+
+    def test_response_on_reflect_status_clearing_for_familiar(self):
+        self._familiar.set_timed_status(Statuses.Reflect, duration=1)
+        self._test_battle_not_finished(is_player_turn=False)
+        self._assert_responses('You no longer reflect spells.')
+
+    def test_response_on_reflect_status_clearing_for_monster(self):
+        self._enemy.name = 'enemy_unit'
+        self._enemy.set_timed_status(Statuses.Reflect, duration=1)
+        self._test_battle_not_finished(is_player_turn=True)
+        self._assert_responses('Enemy_unit no longer reflects spells.')
+
+    def test_response_on_wind_reflect_status_clearing_for_familiar(self):
+        self._familiar.set_timed_status(Statuses.WindReflect, duration=1)
+        self._test_battle_not_finished(is_player_turn=False)
+        self._assert_responses('You no longer reflect wind spells.')
+
+    def test_response_on_wind_reflect_status_clearing_for_monster(self):
+        self._enemy.name = 'enemy_unit'
+        self._enemy.set_timed_status(Statuses.WindReflect, duration=1)
+        self._test_battle_not_finished(is_player_turn=True)
+        self._assert_responses('Enemy_unit no longer reflects wind spells.')
+
+    def test_on_status_clear_unit_does_no_longer_have_a_status(self):
+        self._familiar.set_timed_status(Statuses.Confuse, duration=1)
+        self.assertTrue(self._familiar.has_status(Statuses.Confuse))
+        self._test_battle_not_finished(is_player_turn=False)
+        self.assertFalse(self._familiar.has_status(Statuses.Confuse))
+
+    def test_on_status_is_not_cleared_for_duration_greater_than_1(self):
+        self._familiar.set_timed_status(Statuses.Confuse, duration=2)
+        self.assertTrue(self._familiar.has_status(Statuses.Confuse))
+        self._test_battle_not_finished(is_player_turn=False)
+        self.assertTrue(self._familiar.has_status(Statuses.Confuse))
+        self.assertEqual(self._familiar.status_duration(Statuses.Confuse), {Statuses.Confuse: 1})
+
+    def _test_status_effect(self, is_familiar_next_one_to_act, familiar_hp=1, enemy_hp=1):
+        self._battle_context.is_first_turn = False
+        self._battle_context.is_player_turn = not is_familiar_next_one_to_act
+        self._familiar.hp = familiar_hp
+        self._enemy.hp = enemy_hp
+        super()._test_on_enter()
+
+    def test_poison_effect_on_familiar_response(self):
+        self._familiar.max_hp = 40
+        self._familiar.set_timed_status(Statuses.Poison, duration=2)
+        self._test_status_effect(is_familiar_next_one_to_act=True, familiar_hp=20)
+        self._assert_responses('You lose 3 HP. You have 17 HP left.')
+
+    def test_poison_effect_on_monster_response(self):
+        self._enemy.name = 'enemy_unit'
+        self._enemy.max_hp = 40
+        self._enemy.set_timed_status(Statuses.Poison, duration=2)
+        self._test_status_effect(is_familiar_next_one_to_act=False, enemy_hp=20)
+        self._assert_responses('Enemy_unit loses 3 HP. It has 17 HP left.')
+
+    def test_poison_damage(self):
+        self._familiar.max_hp = 40
+        self._familiar.set_timed_status(Statuses.Poison, duration=1)
+        self._test_status_effect(is_familiar_next_one_to_act=True, familiar_hp=20)
+        self.assertEqual(self._familiar.hp, 17)
+
+    def test_poison_damage_is_capped_to_leave_at_least_1_hp(self):
+        self._familiar.max_hp = 40
+        self._familiar.set_timed_status(Statuses.Poison, duration=1)
+        self._test_status_effect(is_familiar_next_one_to_act=True, familiar_hp=3)
+        self.assertEqual(self._familiar.hp, 1)
+
+    def test_poison_damage_is_not_done_when_hp_is_1(self):
+        self._familiar.max_hp = 40
+        self._familiar.set_timed_status(Statuses.Poison, duration=1)
+        self._test_status_effect(is_familiar_next_one_to_act=True, familiar_hp=1)
+        self.assertEqual(self._familiar.hp, 1)
+
+    def test_poison_effect_response_when_hp_is_1(self):
+        self._familiar.max_hp = 40
+        self._familiar.set_timed_status(Statuses.Poison, duration=2)
+        self._test_status_effect(is_familiar_next_one_to_act=True, familiar_hp=1)
+        self._assert_responses()
+
+    def test_sleep_effect_on_familiar_response(self):
+        self._familiar.set_timed_status(Statuses.Sleep, duration=2)
+        self._test_status_effect(is_familiar_next_one_to_act=True)
+        self._assert_responses('You sleep through your turn.')
+
+    def test_sleep_effect_on_enemy_response(self):
+        self._enemy.name = 'enemy_unit'
+        self._enemy.set_timed_status(Statuses.Sleep, duration=2)
+        self._test_status_effect(is_familiar_next_one_to_act=False)
+        self._assert_responses('Enemy_unit sleeps through its turn.')
+
+    def test_action_on_familiar_with_sleep_status(self):
+        self._familiar.set_timed_status(Statuses.Sleep, duration=2)
+        self._test_status_effect(is_familiar_next_one_to_act=True)
+        self._assert_action(commands.SKIP_TURN)
+
+    def test_action_on_enemy_with_sleep_status(self):
+        self._enemy.set_timed_status(Statuses.Sleep, duration=2)
+        self._test_status_effect(is_familiar_next_one_to_act=False)
+        self._assert_action(commands.SKIP_TURN)
+
+    def test_paralyze_effect_on_familiar_response(self):
+        self._familiar.set_timed_status(Statuses.Paralyze, duration=2)
+        self._test_status_effect(is_familiar_next_one_to_act=True)
+        self._assert_responses('You are paralyzed. You skip a turn.')
+
+    def test_paralyze_effect_on_enemy_response(self):
+        self._enemy.name = 'enemy_unit'
+        self._enemy.set_timed_status(Statuses.Paralyze, duration=2)
+        self._test_status_effect(is_familiar_next_one_to_act=False)
+        self._assert_responses('Enemy_unit is paralyzed. It skips a turn.')
+
+    def test_action_on_familiar_with_paralyze_status(self):
+        self._familiar.set_timed_status(Statuses.Paralyze, duration=2)
+        self._test_status_effect(is_familiar_next_one_to_act=True)
+        self._assert_action(commands.SKIP_TURN)
+
+    def test_action_on_enemy_with_paralyze_status(self):
+        self._enemy.set_timed_status(Statuses.Paralyze, duration=2)
+        self._test_status_effect(is_familiar_next_one_to_act=False)
+        self._assert_action(commands.SKIP_TURN)
+
     def test_action_when_battle_is_finished(self):
         self._test_on_enter(battle_is_finished=True, is_familiar_dead=False, is_enemy_dead=False)
         self._assert_action(commands.EVENT_FINISHED)
@@ -439,6 +646,20 @@ class StateEnemyStatsTest(StateBattleTestBase):
     def test_on_enter_generates_player_turn_action(self):
         self._test_on_enter()
         self._assert_action(commands.PLAYER_TURN)
+
+
+class StateBattleSkipTurnTest(StateBattleTestBase):
+    @classmethod
+    def _state_class(cls):
+        return StateBattleSkipTurn
+
+    def test_on_enter_response(self):
+        self._test_on_enter()
+        self._assert_responses('You skip turn.')
+
+    def test_on_enter_action(self):
+        self._test_on_enter()
+        self._assert_action(commands.BATTLE_ACTION_PERFORMED)
 
 
 class StateBattleAttackTest(StateBattleTestBase):
@@ -616,10 +837,13 @@ class StateBattleUseSpellTest(StateBattleTestBase):
         super().setUp()
         self._familiar = Mock(spec=Unit)
         type(self._context).familiar = PropertyMock(return_value=self._familiar)
-        self._spell = Mock(spec=Spell)
-        type(self._familiar).spell = PropertyMock(return_value=self._spell)
+        self._spell_cast_handler = Mock(spec=CastSpellHandler)
+        self._spell_cast_handler.can_cast.return_value = True, ''
+        self._spell_cast_handler.cast.return_value = ''
         self._spell_traits = SpellTraits()
-        type(self._spell).traits = self._spell_traits
+        self._spell_traits.cast_handler = self._spell_cast_handler
+        self._spell = Spell(self._spell_traits)
+        type(self._familiar).spell = PropertyMock(return_value=self._spell)
         self._enemy = Unit(UnitTraits(), Config.Levels())
         self._enemy.name = 'Monster'
         type(self._battle_context).enemy = PropertyMock(return_value=self._enemy)
@@ -635,64 +859,48 @@ class StateBattleUseSpellTest(StateBattleTestBase):
         error_message = self._test_create_state_failure()
         self.assertEqual(error_message, 'You do not have enough MP.')
 
-    def test_response_when_familiar_has_no_spell(self):
-        self._familiar.has_spell.side_effect = [True, False]
-        self._test_on_enter()
-        self._assert_responses('You do not have a spell.')
-
-    def test_action_when_familiar_has_no_spell(self):
-        self._familiar.has_spell.side_effect = [True, False]
-        self._test_on_enter()
-        self._assert_action(commands.CANNOT_USE_SPELL)
-
-    def test_response_when_familiar_does_not_have_enough_mp(self):
-        self._familiar.has_spell.return_value = True
-        self._familiar.has_enough_mp_for_spell.side_effect = [True, False]
-        self._test_on_enter()
-        self._assert_responses('You do not have enough MP.')
-
-    def test_action_when_familiar_does_not_have_enough_mp(self):
-        self._familiar.has_spell.return_value = True
-        self._familiar.has_enough_mp_for_spell.side_effect = [True, False]
-        self._test_on_enter()
-        self._assert_action(commands.CANNOT_USE_SPELL)
-
-    def _test_spell_damage(self, damage=0):
+    def test_creating_fails_when_spell_cannot_be_casted(self):
         self._familiar.has_spell.return_value = True
         self._familiar.has_enough_mp_for_spell.return_value = True
-        with patch('curry_quest.state_battle.DamageCalculator') as DamageCalculatorMock:
-            damage_calculator_mock = DamageCalculatorMock.return_value
-            damage_calculator_mock.spell_damage.return_value = damage
-            self._test_on_enter()
-            damage_calculator_mock.spell_damage.assert_called_once()
-            return DamageCalculatorMock.call_args.args
+        self._spell_cast_handler.can_cast.return_value = False, 'CANNOT CAST'
+        error_message = self._test_create_state_failure()
+        self.assertEqual(error_message, 'CANNOT CAST')
 
-    def test_action_on_spell(self):
-        self._test_spell_damage()
+    def _test_spell_cast(self):
+        def create_spell_cast_context(caster, other_unit):
+            spell_cast_context = SpellCastContext()
+            spell_cast_context.caster = caster
+            spell_cast_context.target = other_unit
+            spell_cast_context.other_than_target = caster
+            spell_cast_context.state_machine_context = self._context
+            return spell_cast_context
+
+        self._context.create_spell_cast_context.side_effect = create_spell_cast_context
+        self._familiar.has_spell.return_value = True
+        self._familiar.has_enough_mp_for_spell.return_value = True
+        self._spell_cast_handler.can_cast.return_value = True, ''
+        self._test_on_enter()
+        self._spell_cast_handler.cast.assert_called_once()
+        return self._spell_cast_handler.cast.call_args.args[0]
+
+    def test_action_on_spell_cast(self):
+        self._test_spell_cast()
         self._assert_action(commands.BATTLE_ACTION_PERFORMED)
 
     def test_response_on_spell(self):
         self._spell_traits.name = 'FamiliarSpell'
-        self._enemy.name = 'Enemy'
-        self._enemy.hp = 30
-        self._test_spell_damage(damage=8)
-        self._assert_responses('You cast FamiliarSpell dealing 8 damage. Enemy has 22 HP left.')
+        self._spell_cast_handler.cast.return_value = 'spell casted.'
+        self._test_spell_cast()
+        self._assert_responses('You cast FamiliarSpell. spell casted.')
 
     def test_mp_usage(self):
         self._spell_traits.mp_cost = 6
-        self._enemy.name = 'Enemy'
-        self._test_spell_damage()
+        self._test_spell_cast()
         self._familiar.use_mp.assert_called_once_with(6)
 
-    def test_damage(self):
-        self._enemy.hp = 40
-        self._test_spell_damage(damage=13)
-        self.assertEqual(self._enemy.hp, 27)
-
-    def test_damage_calculator_args(self):
-        attacker, defender = self._test_spell_damage()
-        self.assertIs(attacker, self._familiar)
-        self.assertIs(defender, self._enemy)
+    def test_spell_target(self):
+        spell_cast_context = self._test_spell_cast()
+        self.assertIs(spell_cast_context.target, self._enemy)
 
 
 class StateBattleUseItemTest(StateBattleTestBase):
@@ -807,10 +1015,19 @@ class StateBattleEnemyTurnTest(StateBattleTestBase):
         self._rng.choices.return_value = (DamageRoll.Normal,)
         self._enemy = Unit(UnitTraits(), Config.Levels())
         self._enemy.name = 'Monster'
+        self._enemy_action_weights = self._enemy.traits.action_weights
         type(self._battle_context).enemy = PropertyMock(return_value=self._enemy)
         self._familiar = Unit(UnitTraits(), Config.Levels())
         self._familiar.name = 'Familiar'
         type(self._context).familiar = PropertyMock(return_value=self._familiar)
+        self._context.create_spell_cast_context.side_effect = self._create_spell_cast_context
+
+    def _create_spell_cast_context(self, caster: Unit, other_unit: Unit):
+        spell_cast_context = SpellCastContext()
+        spell_cast_context.caster = caster
+        spell_cast_context.target = other_unit
+        spell_cast_context.state_machine_context = self._context
+        return spell_cast_context
 
     def _test_on_enter(self, is_holy_scroll_active=False):
         self._battle_context.is_holy_scroll_active.return_value = is_holy_scroll_active
@@ -835,6 +1052,9 @@ class StateBattleEnemyTurnTest(StateBattleTestBase):
         def configurator(damage_calculator_mock):
             damage_calculator_mock.physical_damage.return_value = damage
 
+        self._enemy_action_weights.physical_attack = 1
+        self._enemy_action_weights.spell = 0
+        self._enemy_action_weights.ability = 0
         self._enemy.luck = 1
         self._context.does_action_succeed.side_effect = [True, critical_hit]
         self._rng.choices.return_value = (damage_roll,)
@@ -957,65 +1177,107 @@ class StateBattleEnemyTurnTest(StateBattleTestBase):
             'Monster hits dealing 17 damage. You have 13 HP left. '
             'An electrical shock runs through Monster\'s body dealing 4 damage. Monster has 36 HP left.')
 
-    def _test_spell_damage(self, spell_name='', mp_cost=0, damage=0):
-        def configurator(damage_calculator_mock):
-            damage_calculator_mock.spell_damage.return_value = damage
+    def _test_spell_cast(self, spell_name='', mp_cost=0, can_cast=True, cast_response=''):
+        self._enemy_action_weights.physical_attack = 0
+        self._enemy_action_weights.spell = 1
+        self._enemy_action_weights.ability = 0
+        cast_handler = create_autospec(spec=CastSpellHandler)
+        cast_handler.can_cast.return_value = can_cast, ''
+        cast_handler.cast.return_value = cast_response
+        self._prepare_enemys_spell(spell_name, mp_cost, cast_handler)
+        self._test_on_enter()
+        return cast_handler
 
-        self._prepare_enemys_spell(spell_name, mp_cost)
-        self._context.does_action_succeed.return_value = True
-        damage_calculator_mock, DamageCalculatorMock = self._test_damage_calculator(configurator)
-        damage_calculator_mock.spell_damage.assert_called_once()
-        return DamageCalculatorMock.call_args.args
-
-    def _prepare_enemys_spell(self, spell_name='', mp_cost=0):
+    def _prepare_enemys_spell(self, spell_name='', mp_cost=0, cast_handler=None):
         spell_traits = SpellTraits()
         spell_traits.name = spell_name
         spell_traits.mp_cost = mp_cost
+        spell_traits.cast_handler = cast_handler
         self._enemy.set_spell(spell_traits, level=1)
 
     def test_action_on_spell(self):
-        self._test_spell_damage()
+        self._test_spell_cast()
         self._assert_action(commands.BATTLE_ACTION_PERFORMED)
 
     def test_response_on_spell(self):
+        self._enemy.name = 'monster'
         self._familiar.hp = 30
-        self._test_spell_damage(spell_name='MonsterSpell', damage=8)
-        self._assert_responses('Monster casts MonsterSpell dealing 8 damage. You have 22 HP left.')
+        self._test_spell_cast(spell_name='MonsterSpell', cast_response='Casted a spell.')
+        self._assert_responses('Monster casts MonsterSpell. Casted a spell.')
 
     def test_mp_usage(self):
         self._enemy.mp = 60
-        self._test_spell_damage(mp_cost=14)
+        self._test_spell_cast(mp_cost=14)
         self.assertEqual(self._enemy.mp, 46)
 
-    def test_damage(self):
-        self._familiar.hp = 40
-        self._test_spell_damage(damage=13)
-        self.assertEqual(self._familiar.hp, 27)
+    def test_spell_cast_context_for_cast(self):
+        spell_cast_context = SpellCastContext()
+        spell_cast_context.caster = self._enemy
+        spell_cast_context.target = self._familiar
+        spell_cast_context.state_machine_context = self._context
+        self._context.create_spell_cast_context.side_effect = lambda _, __: spell_cast_context
+        cast_handler = self._test_spell_cast()
+        spell_cast_context = cast_handler.cast.call_args.args[0]
+        self.assertIs(spell_cast_context.caster, self._enemy)
+        self.assertIs(spell_cast_context.target, self._familiar)
+        self.assertIs(spell_cast_context.state_machine_context, self._context)
 
-    def test_damage_calculator_args(self):
-        attacker, defender = self._test_spell_damage()
-        self.assertIs(attacker, self._enemy)
-        self.assertIs(defender, self._familiar)
+    def test_spell_cast_context_for_can_cast(self):
+        spell_cast_context = SpellCastContext()
+        spell_cast_context.caster = self._enemy
+        spell_cast_context.target = self._familiar
+        spell_cast_context.state_machine_context = self._context
+        self._context.create_spell_cast_context.side_effect = lambda _, __: spell_cast_context
+        cast_handler = self._test_spell_cast()
+        spell_cast_context = cast_handler.can_cast.call_args.args[0]
+        self.assertIs(spell_cast_context.caster, self._enemy)
+        self.assertIs(spell_cast_context.target, self._familiar)
+        self.assertIs(spell_cast_context.state_machine_context, self._context)
 
-    def test_when_enemy_does_not_have_enough_mp_for_a_spell_it_will_perform_physical_attack(self):
+    def _test_enemy_action_selection(self, can_cast=True, mp_cost=0):
+        action_weights = []
+
+        def select_enemy_action(actions_with_weights):
+            _, greatest_weight = next(iter(actions_with_weights.items()))
+            for index, (_, weight) in enumerate(actions_with_weights.items()):
+                action_weights.append(weight)
+                if weight > greatest_weight:
+                    greatest_weight = weight
+            return lambda: f'Action {index}'
+
+        self._context.random_selection_with_weights.side_effect = select_enemy_action
+        cast_handler = create_autospec(spec=CastSpellHandler)
+        cast_handler.can_cast.return_value = can_cast, ''
+        cast_handler.cast.return_value = ''
+        self._prepare_enemys_spell('', mp_cost, cast_handler)
+        self._test_on_enter()
+        return action_weights
+
+    def _create_action_weights_list(self, physical_attack, spell, ability):
+        return [physical_attack, spell]
+
+    def test_when_enemy_cannot_cast_a_spell_then_cast_spell_weight_will_be_0(self):
+        self._enemy_action_weights.physical_attack = 5
+        self._enemy_action_weights.spell = 10
+        self._enemy_action_weights.ability = 15
+        action_weights = self._test_enemy_action_selection(can_cast=False)
+        self.assertEqual(action_weights, self._create_action_weights_list(physical_attack=5, spell=0, ability=15))
+
+    def test_when_enemy_does_not_have_enough_mp_for_a_spell_then_cast_spell_weight_will_be_0(self):
+        self._enemy.mp = 4
+        self._enemy_action_weights.physical_attack = 5
+        self._enemy_action_weights.spell = 10
+        self._enemy_action_weights.ability = 15
+        action_weights = self._test_enemy_action_selection(mp_cost=5)
+        self.assertEqual(action_weights, self._create_action_weights_list(physical_attack=5, spell=0, ability=15))
+
+    def test_when_enemy_can_cast_and_has_enough_mp_for_a_spell_then_cast_spell_weight_will_be_taken_from_traits(self):
         self._enemy.mp = 5
-        self._prepare_enemys_spell(mp_cost=6)
-        self._test_physical_damage()
-        self.assertEqual(self._enemy.mp, 5)
-
-    def test_when_enemy_can_cast_a_spell_but_rng_will_decide_not_to_then_physical_attack_is_performed(self):
-        def configurator(damage_calculator_mock):
-            damage_calculator_mock.physical_damage.return_value = 4
-
-        self._prepare_enemys_spell()
-        self._familiar.hp = 50
-        self._enemy.luck = 1
-        self._context.does_action_succeed.side_effect = False, True, False
-        self._rng.choices.return_value = DamageRoll.Normal,
-        damage_calculator_mock, _ = self._test_damage_calculator(configurator)
-        damage_calculator_mock.physical_damage.assert_called_once()
-        damage_calculator_mock.spell_damage.assert_not_called()
-        self.assertEqual(self._familiar.hp, 46)
+        self._enemy_action_weights.physical_attack = 5
+        self._enemy_action_weights.spell = 10
+        self._enemy_action_weights.ability = 15
+        action_weights = self._test_enemy_action_selection(can_cast=True, mp_cost=5)
+        self.assertEqual(action_weights, self._create_action_weights_list(physical_attack=5, spell=10, ability=15))
 
 
 if __name__ == '__main__':

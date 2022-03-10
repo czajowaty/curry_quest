@@ -12,7 +12,15 @@ class Talents(enum.Flag):
     MagicAttackIncreased = 0x80
     MpConsumptionDecreased = 0x100
     ElectricShock = 0x8000
+    ImmuneToStealing = 0x80000
+    Unbrainwashable = 0x100000
     Atrocious = 0x200000
+    SleepProof = 0x2000000
+    ConfusionProof = 0x4000000
+    BlinderProof = 0x8000000
+    ParalysisProof = 0x10000000
+    PoisonProof = 0x20000000
+    SpellProof = 0x40000000
 
     def has(self, talents: '__class__') -> bool:
         return (self & talents) == talents

@@ -1,4 +1,4 @@
-from curry_quest.config import Config
+from bot_config import BotConfig
 from curry_quest.controller import Controller
 from curry_quest.curry_quest import CurryQuest
 import unittest
@@ -45,7 +45,7 @@ class CurryQuestTest(unittest.TestCase):
         return create_autospec(Controller, *args, **kwargs)
 
     def _config(self, channel_id=0, admin_channel_id=0, admins=[]):
-        config = Config()
+        config = BotConfig()
         config._channel_id = channel_id
         config._admin_channel_id = admin_channel_id
         config._admins = admins

@@ -2,11 +2,13 @@ import datetime
 import json
 from curry_quest import commands
 from curry_quest.errors import InvalidOperation
+from curry_quest.genus import Genus
 from curry_quest.items import normalize_item_name, all_items
+from curry_quest.spell import Spells
 from curry_quest.state_base import StateBase
 from curry_quest.state_battle import StateBattleEvent, StateStartBattle, StateBattlePreparePhase, StateBattleApproach, \
-    StateBattlePhase, StateBattlePlayerTurn, StateEnemyStats, StateBattleAttack, StateBattleUseSpell, \
-    StateBattleUseItem, StateBattleTryToFlee, StateBattleEnemyTurn
+    StateBattlePhase, StateBattlePlayerTurn, StateEnemyStats, StateBattleAttack, StateBattleSkipTurn, \
+    StateBattleUseSpell, StateBattleUseItem, StateBattleTryToFlee, StateBattleEnemyTurn
 from curry_quest.state_character import StateCharacterEvent, StateItemTrade, StateItemTradeAccepted, \
     StateItemTradeRejected, StateFamiliarTrade, StateFamiliarTradeAccepted, StateFamiliarTradeRejected, \
     StateEvolveFamiliar
@@ -21,6 +23,7 @@ from curry_quest.state_machine_action import StateMachineAction
 from curry_quest.state_machine_context import StateMachineContext
 from curry_quest.state_trap import StateTrapEvent
 import logging
+from curry_quest.statuses import Statuses
 
 logger = logging.getLogger(__name__)
 
@@ -82,17 +85,20 @@ class StateMachine:
         StateBattlePhase: {
             commands.PLAYER_TURN: Transition.by_admin(StateBattlePlayerTurn),
             commands.ENEMY_TURN: Transition.by_admin(StateBattleEnemyTurn),
+            commands.SKIP_TURN: Transition.by_admin(StateBattlePhase),
             commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent),
             commands.YOU_DIED: Transition.by_admin(StateGameOver)
         },
         StateBattlePlayerTurn: {
             commands.ENEMY_STATS: Transition.by_user(StateEnemyStats),
+            commands.SKIP_TURN: Transition.by_user(StateBattleSkipTurn),
             commands.ATTACK: Transition.by_user(StateBattleAttack),
             commands.USE_SPELL: Transition.by_user(StateBattleUseSpell),
             commands.USE_ITEM: Transition.by_user(StateBattleUseItem),
             commands.FLEE: Transition.by_user(StateBattleTryToFlee)
         },
         StateEnemyStats: {commands.PLAYER_TURN: Transition.by_admin(StateBattlePlayerTurn)},
+        StateBattleSkipTurn: {commands.BATTLE_ACTION_PERFORMED: Transition.by_admin(StateBattlePhase)},
         StateBattleAttack: {commands.BATTLE_ACTION_PERFORMED: Transition.by_admin(StateBattlePhase)},
         StateBattleUseSpell: {
             commands.BATTLE_ACTION_PERFORMED: Transition.by_admin(StateBattlePhase),
@@ -182,7 +188,11 @@ class StateMachine:
             commands.SHOW_STATE: (False, self._handle_state_query),
             commands.GIVE_ITEM: (True, self._give_item),
             commands.RESTORE_HP: (True, self._restore_hp),
-            commands.RESTORE_MP: (True, self._restore_mp)
+            commands.RESTORE_MP: (True, self._restore_mp),
+            commands.GIVE_FAMILIAR_SPELL: (True, self._give_familiar_spell),
+            commands.GIVE_FAMILIAR_STATUS: (True, self._give_familiar_status),
+            commands.GIVE_ENEMY_SPELL: (True, self._give_enemy_spell),
+            commands.GIVE_ENEMY_STATUS: (True, self._give_enemy_status)
         }
 
     @property
@@ -342,6 +352,96 @@ class StateMachine:
             return
         self._context.familiar.restore_mp()
         self._context.add_response(f"Your MP was restored by an unknown power.")
+
+    def _give_familiar_spell(self, action):
+        if not self._has_entered_tower():
+            logger.warning(f"{self.player_id} has not entered the tower yet.")
+            return
+        self._give_spell(action, self._context.familiar, 'You were')
+
+    def _give_enemy_spell(self, action):
+        if not self._has_entered_tower():
+            logger.warning(f"{self.player_id} has not entered the tower yet.")
+            return
+        if not self._context.is_in_battle():
+            logger.warning(f"{self.player_id} is not in battle.")
+            return
+        enemy = self._context.battle_context.enemy
+        self._give_spell(action, enemy, f'{enemy.name.capitalize()} was')
+
+    def _give_spell(self, action, target_unit, response_prefix):
+        try:
+            spell_traits = self._parse_give_spell_action_spell(action, target_unit)
+            spell_level = self._parse_give_spell_action_spell_level(action, target_unit)
+        except InvalidOperation as exc:
+            logger.warning(''.join(exc.args))
+            return
+        target_unit.set_spell(spell_traits, spell_level)
+        self._context.add_response(
+            f"{response_prefix} given level {spell_level} {spell_traits.name} spell by an unknown power.")
+
+    def _parse_give_spell_action_spell(self, action, target_unit):
+        if len(action.args) < 1:
+            raise InvalidOperation(f"Not enough arguments.")
+        spell_base_name = action.args[0]
+        try:
+            return Spells.find_spell_traits(spell_base_name, target_unit.genus)
+        except ValueError as exc:
+            raise InvalidOperation(exc.args)
+
+    def _parse_give_spell_action_spell_level(self, action, target_unit):
+        if len(action.args) > 1:
+            spell_level_string = action.args[1]
+            try:
+                return int(spell_level_string)
+            except ValueError:
+                raise InvalidOperation(f"'{spell_level_string}' is not valid spell level.")
+        else:
+            return target_unit.level
+
+    def _give_familiar_status(self, action):
+        if not self._has_entered_tower():
+            logger.warning(f"{self.player_id} has not entered the tower yet.")
+            return
+        self._give_status(action, self._context.familiar, 'You were')
+
+    def _give_enemy_status(self, action):
+        if not self._has_entered_tower():
+            logger.warning(f"{self.player_id} has not entered the tower yet.")
+            return
+        if not self._context.is_in_battle():
+            logger.warning(f"{self.player_id} is not in battle.")
+            return
+        enemy = self._context.battle_context.enemy
+        self._give_status(action, enemy, f'{enemy.name.capitalize()} was')
+
+    def _give_status(self, action, target_unit, response_prefix):
+        status = self._parse_give_status_action_status(action)
+        response = f'{response_prefix} given {status.name} status'
+        if len(action.args) == 1:
+            target_unit.set_status(status)
+        else:
+            status_duration = self._parse_give_status_action_status_duration(action)
+            target_unit.set_timed_status(status, status_duration)
+            response += f' for {status_duration} turns'
+        response += ' by an unknown power.'
+        self._context.add_response(response)
+
+    def _parse_give_status_action_status(self, action):
+        if len(action.args) < 1:
+            raise InvalidOperation(f"Not enough arguments.")
+        status_name = action.args[0]
+        try:
+            return Statuses[status_name]
+        except KeyError:
+            raise InvalidOperation(f"'{status_name}' is not valid status.")
+
+    def _parse_give_status_action_status_duration(self, action):
+        status_duration_string = action.args[1]
+        try:
+            return int(status_duration_string)
+        except ValueError:
+            raise InvalidOperation(f"'{status_duration_string}' is not valid duration.")
 
     def _handle_generic_action_before_entering_tower(self):
         self._context.add_response(f"You did not enter the tower yet.")

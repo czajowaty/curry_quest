@@ -1,8 +1,9 @@
+from json_config_parser import JsonConfigParser
 from collections.abc import Mapping, Sequence
-import json
 from curry_quest.floor_descriptor import FloorDescriptor, Monster
 from curry_quest.items import all_items
-from curry_quest.traits import UnitTraits, Genus, Talents, SpellTraits
+from curry_quest.spell import Spells
+from curry_quest.traits import UnitTraits, Genus, Talents
 
 
 class Config:
@@ -17,7 +18,6 @@ class Config:
     class Probabilities:
         def __init__(self):
             self.flee = 0.0
-            self.enemy_spell_attack = 0.0
 
     class PlayerSelectionWeights:
         def __init__(self):
@@ -43,9 +43,6 @@ class Config:
             self.ghosh = UnitTraits()
 
     def __init__(self):
-        self._channel_id = 0
-        self._admin_channel_id = 0
-        self._admins = []
         self._timers = self.Timers()
         self._probabilities = self.Probabilities()
         self._player_selection_weights = self.PlayerSelectionWeights()
@@ -57,18 +54,6 @@ class Config:
         self._monsters_traits = {}
         self._special_units_traits = self.SpecialUnitsTraits()
         self._floors = []
-
-    @property
-    def channel_id(self):
-        return self._channel_id
-
-    @property
-    def admin_channel_id(self):
-        return self._admin_channel_id
-
-    @property
-    def admins(self):
-        return self._admins
 
     @property
     def timers(self):
@@ -100,278 +85,242 @@ class Config:
 
     @property
     def highest_floor(self) -> int:
-        return len(self._floors)
+        return len(self._floors) - 1
 
-    @classmethod
-    def from_file(cls, config_file) -> '__class__':
-        return cls.from_json(config_file.read())
+    class Parser(JsonConfigParser):
+        def __init__(self, config_file):
+            super().__init__(config_file, Config)
 
-    @classmethod
-    def from_json(cls, config_json_string) -> '__class__':
-        config = Config()
-        try:
-            config_json = json.loads(config_json_string)
-            config._channel_id = config_json['channel_id']
-            config._admin_channel_id = config_json['admin_channel_id']
-            config._admins = config_json['admins']
-            cls._read_timers(config._timers, config_json['timers'])
-            cls._read_probabilities(config._probabilities, config_json['probabilities'])
-            cls._read_player_selection_weights(
-                config._player_selection_weights,
-                config_json['player_selection_weights'])
-            config.events_weights = config_json['events_weights']
-            config.found_items_weights = config_json['found_items_weights']
-            config.character_events_weights = config_json['characters_events_weights']
-            config.traps_weights = config_json['traps_weights']
-            cls._read_levels(config._levels, config_json['experience_per_level'])
-            config._monsters_traits = cls._create_monsters_traits(config_json['monsters'])
-            config._special_units_traits = cls._create_special_units_traits(config_json['special_units'])
-            config._floors = cls._create_floors(config_json['floors'])
-        except json.JSONDecodeError as exc:
-            raise cls.InvalidConfig(f"Invalid JSON: {exc}")
-        except KeyError as exc:
-            raise cls.InvalidConfig(f"Missing key: {exc}")
-        cls._validate_config(config)
-        return config
+        def _parse(self):
+            self._read_timers()
+            self._read_probabilities()
+            self._read_player_selection_weights()
+            self._config.events_weights = self._config_json['events_weights']
+            self._config.found_items_weights = self._config_json['found_items_weights']
+            self._config.character_events_weights = self._config_json['characters_events_weights']
+            self._config.traps_weights = self._config_json['traps_weights']
+            self._read_levels()
+            self._default_monster_action_weights = self._read_monster_action_weights(
+                self._config_json['default_monster_action_weights'])
+            self._read_monsters_traits()
+            self._read_special_units_traits()
+            self._read_floors()
 
-    @classmethod
-    def _read_timers(cls, timers: '__class__.Timers', timers_json):
-        try:
-            timers.event_interval = int(timers_json['event_interval'])
-            timers.event_penalty_duration = int(timers_json['event_penalty_duration'])
-        except ValueError as exc:
-            raise cls.InvalidConfig(f"{timers_json}: {exc}")
+        def _read_timers(self):
+            timers = self._config._timers
+            timers_json = self._config_json['timers']
+            try:
+                timers.event_interval = int(timers_json['event_interval'])
+                timers.event_penalty_duration = int(timers_json['event_penalty_duration'])
+            except ValueError as exc:
+                raise self.InvalidConfig(f"{timers_json}: {exc}")
 
-    @classmethod
-    def _read_probabilities(cls, probabilities, probabilities_json):
-        try:
-            probabilities.flee = float(probabilities_json['flee'])
-            probabilities.enemy_spell_attack = float(probabilities_json['enemy_spell_attack'])
-        except ValueError as exc:
-            raise cls.InvalidConfig(f"{probabilities_json}: {exc}")
+        def _read_probabilities(self):
+            probabilities = self._config._probabilities
+            probabilities_json = self._config_json['probabilities']
+            try:
+                probabilities.flee = float(probabilities_json['flee'])
+            except ValueError as exc:
+                raise self.InvalidConfig(f"{probabilities_json}: {exc}")
 
-    @classmethod
-    def _read_player_selection_weights(cls, player_selection_weights, player_selection_weights_json):
-        try:
-            player_selection_weights.without_penalty = player_selection_weights_json['without_penalty']
-            player_selection_weights.with_penalty = player_selection_weights_json['with_penalty']
-        except ValueError as exc:
-            raise cls.InvalidConfig(f"{player_selection_weights_json}: {exc}")
+        def _read_player_selection_weights(self):
+            player_selection_weights = self._config._player_selection_weights
+            player_selection_weights_json = self._config_json['player_selection_weights']
+            try:
+                player_selection_weights.without_penalty = player_selection_weights_json['without_penalty']
+                player_selection_weights.with_penalty = player_selection_weights_json['with_penalty']
+            except ValueError as exc:
+                raise self.InvalidConfig(f"{player_selection_weights_json}: {exc}")
 
-    @classmethod
-    def _read_levels(cls, levels: '__class__.Levels', levels_json):
-        experience_for_prev_level = -1
-        for level, experience_for_next_level in enumerate(levels_json, start=1):
-            if experience_for_next_level <= experience_for_prev_level:
-                raise cls.InvalidConfig(f'Experience required for LVL {level} is not greater than for LVL {level - 1}')
-            levels.add_level(experience_for_next_level)
-            experience_for_prev_level = experience_for_next_level
+        def _read_levels(self):
+            levels = self._config._levels
+            levels_json = self._config_json['experience_per_level']
+            experience_for_prev_level = -1
+            for level, experience_for_next_level in enumerate(levels_json, start=1):
+                if experience_for_next_level <= experience_for_prev_level:
+                    raise self.InvalidConfig(
+                        f'Experience required for LVL {level} is not greater than for LVL {level - 1}')
+                levels.add_level(experience_for_next_level)
+                experience_for_prev_level = experience_for_next_level
 
-    @classmethod
-    def _create_monsters_traits(cls, monsters_json):
-        monsters_traits = {}
-        for monster_json in monsters_json:
-            monster_traits = cls._create_unit_traits(monster_json)
-            if monster_traits.name in monsters_traits:
-                raise cls.InvalidConfig(f"Double entry for monster '{monster_traits.name}' traits")
-            monsters_traits[monster_traits.name] = monster_traits
-        return monsters_traits
+        def _read_monster_action_weights(self, monster_action_weights_json):
+            action_weights = UnitTraits.ActionWeights()
+            try:
+                action_weights.physical_attack = int(monster_action_weights_json['physical_attack'])
+                action_weights.spell = int(monster_action_weights_json['spell'])
+            except ValueError as exc:
+                self._invalid_config(f'{monster_action_weights_json}: {exc}')
+            return action_weights
 
-    @classmethod
-    def _create_unit_traits(cls, unit_json):
-        unit_traits = UnitTraits()
-        try:
-            unit_traits.name = unit_json['name']
-            unit_traits.base_hp = unit_json['base_hp']
-            unit_traits.hp_growth = unit_json['hp_growth']
-            unit_traits.base_mp = unit_json['base_mp']
-            unit_traits.mp_growth = unit_json['mp_growth']
-            unit_traits.base_attack = unit_json['base_attack']
-            unit_traits.attack_growth = unit_json['attack_growth']
-            unit_traits.base_defense = unit_json['base_defense']
-            unit_traits.defense_growth = unit_json['defense_growth']
-            unit_traits.base_luck = unit_json['base_luck']
-            unit_traits.luck_growth = unit_json['luck_growth']
-            unit_traits.base_exp_given = unit_json['base_exp']
-            unit_traits.exp_given_growth = unit_json['exp_growth']
-            unit_traits.native_genus = cls._parse_genus(unit_json['element'])
-            unit_traits.native_spell_traits = cls._parse_spell(unit_json.get('spell'))
-            unit_traits.talents = cls._parse_talents(unit_json.get('talents'))
-            unit_traits.is_evolved = unit_json.get('is_evolved', False)
-            unit_traits.evolves_into = unit_json.get('evolves_into')
-        except KeyError as exc:
-            raise cls.InvalidConfig(f"{unit_json}: missing key {exc}")
-        except ValueError as exc:
-            raise cls.InvalidConfig(f"{unit_json}: {exc}")
-        return unit_traits
+        def _read_monsters_traits(self):
+            monsters_json = self._config_json['monsters']
+            monsters_traits = {}
+            for monster_json in monsters_json:
+                monster_traits = self._create_unit_traits(monster_json)
+                if monster_traits.name in monsters_traits:
+                    raise self.InvalidConfig(f"Double entry for monster '{monster_traits.name}' traits")
+                monsters_traits[monster_traits.name] = monster_traits
+            self._config._monsters_traits = monsters_traits
 
-    @classmethod
-    def _parse_genus(cls, genus_name):
-        if genus_name == 'None':
-            return Genus.Empty
-        for genus in Genus:
-            if genus.name == genus_name:
-                return genus
-        raise ValueError(f'Unknown genus "{genus_name}"')
+        def _create_unit_traits(self, unit_json):
+            unit_traits = UnitTraits()
+            try:
+                unit_traits.name = unit_json['name']
+                unit_traits.base_hp = unit_json['base_hp']
+                unit_traits.hp_growth = unit_json['hp_growth']
+                unit_traits.base_mp = unit_json['base_mp']
+                unit_traits.mp_growth = unit_json['mp_growth']
+                unit_traits.base_attack = unit_json['base_attack']
+                unit_traits.attack_growth = unit_json['attack_growth']
+                unit_traits.base_defense = unit_json['base_defense']
+                unit_traits.defense_growth = unit_json['defense_growth']
+                unit_traits.base_luck = unit_json['base_luck']
+                unit_traits.luck_growth = unit_json['luck_growth']
+                unit_traits.base_exp_given = unit_json['base_exp']
+                unit_traits.exp_given_growth = unit_json['exp_growth']
+                unit_traits.native_genus = self._parse_genus(unit_json['element'])
+                unit_traits.native_spell_base_name = unit_json.get('spell')
+                unit_traits.dormant_spell_base_name = unit_json.get('dormant_spell')
+                if 'action_weights' in unit_json:
+                    unit_traits.action_weights = self._read_monster_action_weights(unit_json['action_weights'])
+                else:
+                    unit_traits.action_weights = self._default_monster_action_weights.copy()
+                unit_traits.talents = self._parse_talents(unit_json.get('talents'))
+                unit_traits.is_evolved = unit_json.get('is_evolved', False)
+                unit_traits.evolves_into = unit_json.get('evolves_into')
+            except KeyError as exc:
+                self._invalid_config(f'{unit_json}: missing key {exc}')
+            except ValueError as exc:
+                self._invalid_config(f'{unit_json}: {exc}')
+            return unit_traits
 
-    @classmethod
-    def _parse_spell(cls, spell_name):
-        if spell_name is None:
-            return None
-        spell_traits = SpellTraits()
-        spell_traits.name = spell_name
-        if spell_name == 'Brid':
-            spell_traits.base_damage = 10
-            spell_traits.genus = Genus.Fire
-            spell_traits.mp_cost = 10
-        elif spell_name == 'Breath':
-            spell_traits.base_damage = 16
-            spell_traits.genus = Genus.Fire
-            spell_traits.mp_cost = 12
-        elif spell_name == 'Sled':
-            spell_traits.base_damage = 8
-            spell_traits.genus = Genus.Fire
-            spell_traits.mp_cost = 8
-        elif spell_name == 'Rise':
-            spell_traits.base_damage = 19
-            spell_traits.genus = Genus.Fire
-            spell_traits.mp_cost = 16
-        elif spell_name == 'DeHeal':
-            spell_traits.base_damage = 10
-            spell_traits.genus = Genus.Water
-            spell_traits.mp_cost = 10
-        else:
-            raise ValueError(f'Unknown spell name "{spell_name}"')
-        return spell_traits
+        def _parse_genus(self, genus_name):
+            if genus_name == 'None':
+                return Genus.Empty
+            for genus in Genus:
+                if genus.name == genus_name:
+                    return genus
+            raise ValueError(f'Unknown genus "{genus_name}"')
 
-    @classmethod
-    def _parse_talents(cls, talents_string):
-        if talents_string is None:
-            return Talents.Empty
-        talents = Talents.Empty
-        for talent_name in talents_string.split(','):
-            talents |= cls._parse_talent(talent_name)
-        return talents
+        def _parse_talents(self, talents_string):
+            if talents_string is None:
+                return Talents.Empty
+            talents = Talents.Empty
+            for talent_name in talents_string.split(','):
+                talents |= self._parse_talent(talent_name)
+            return talents
 
-    @classmethod
-    def _parse_talent(cls, talent_name):
-        for talent in Talents:
-            if talent.name == talent_name:
-                return talent
-        raise ValueError(f'Unknown talent "{talent_name}"')
+        def _parse_talent(self, talent_name):
+            for talent in Talents:
+                if talent.name == talent_name:
+                    return talent
+            raise ValueError(f'Unknown talent "{talent_name}"')
 
-    @classmethod
-    def _create_special_units_traits(cls, special_units_json):
-        special_units_traits = cls.SpecialUnitsTraits()
-        try:
-            special_units_traits.ghosh = cls._create_unit_traits(special_units_json['ghosh'])
-        except KeyError as exc:
-            raise cls.InvalidConfig(f'Missing special units traits - {exc}')
-        return special_units_traits
+        def _read_special_units_traits(self):
+            special_units_traits = self._config._special_units_traits
+            special_units_json = self._config_json['special_units']
+            try:
+                special_units_traits.ghosh = self._create_unit_traits(special_units_json['ghosh'])
+            except KeyError as exc:
+                raise self.InvalidConfig(f'Missing special units traits - {exc}')
 
-    @classmethod
-    def _create_floors(cls, floors_json):
-        floors = []
-        for floor_json in floors_json:
-            floors.append(cls._create_floor(floor_json))
-        return floors
+        def _read_floors(self):
+            floors_json = self._config_json['floors']
+            floors = []
+            for floor_json in floors_json:
+                floors.append(self._create_floor(floor_json))
+            self._config._floors = floors
 
-    @classmethod
-    def _create_floor(cls, floor_json):
-        floor = FloorDescriptor()
-        try:
-            for monster_json in floor_json:
-                floor.add_monster(
-                    Monster(monster_json['monster'], monster_json['level']),
-                    monster_json['weight'])
-        except KeyError as exc:
-            raise cls.InvalidConfig(f"{floor_json}: missing key {exc}")
-        return floor
+        def _create_floor(self, floor_json):
+            floor = FloorDescriptor()
+            try:
+                for monster_json in floor_json:
+                    floor.add_monster(
+                        Monster(monster_json['monster'], monster_json['level']),
+                        monster_json['weight'])
+            except KeyError as exc:
+                raise self.InvalidConfig(f"{floor_json}: missing key {exc}")
+            return floor
 
-    @classmethod
-    def _validate_config(cls, config):
-        cls._validate_probabilities(config)
-        cls._validate_events_weights(config)
-        cls._validate_found_items_weights(config)
-        cls._validate_characters_events_weights(config)
-        cls._validate_traps_weights(config)
-        cls._validate_experience_per_level(config)
-        cls._validate_monsters_traits(config)
-        cls._validate_floors(config)
+        def _validate_config(self):
+            self._validate_probabilities()
+            self._validate_events_weights()
+            self._validate_found_items_weights()
+            self._validate_characters_events_weights()
+            self._validate_traps_weights()
+            self._validate_experience_per_level()
+            self._validate_monsters_traits()
+            self._validate_floors()
 
-    @classmethod
-    def _validate_probabilities(cls, config):
-        probabilities = config.probabilities
-        cls._validate_probability('flee', probabilities.flee)
+        def _validate_probabilities(self):
+            self._validate_probability('flee', self._config.probabilities.flee)
 
-    @classmethod
-    def _validate_probability(cls, name, probability):
-        min_probability = 0.0
-        max_probability = 1.0
-        if probability < min_probability or probability > max_probability:
-            raise cls.InvalidConfig(
-                f'Probability "{name}"={probability} is outside range [{min_probability}-{max_probability}]')
+        def _validate_probability(self, name, probability):
+            min_probability = 0.0
+            max_probability = 1.0
+            if probability < min_probability or probability > max_probability:
+                raise self.InvalidConfig(
+                    f'Probability "{name}"={probability} is outside range [{min_probability}-{max_probability}]')
 
-    @classmethod
-    def _validate_events_weights(cls, config):
-        cls._validate_weights_dictionary(
-            'events_weights',
-            config.events_weights,
-            ['battle', 'character', 'elevator', 'item', 'trap', 'familiar'])
+        def _validate_events_weights(self):
+            self._validate_weights_dictionary(
+                'events_weights',
+                self._config.events_weights,
+                ['battle', 'character', 'elevator', 'item', 'trap', 'familiar'])
 
-    @classmethod
-    def _validate_found_items_weights(cls, config):
-        cls._validate_weights_dictionary(
-            'found_items_weights',
-            config.found_items_weights,
-            [item.name for item in all_items()])
+        def _validate_found_items_weights(self):
+            self._validate_weights_dictionary(
+                'found_items_weights',
+                self._config.found_items_weights,
+                [item.name for item in all_items()])
 
-    @classmethod
-    def _validate_characters_events_weights(cls, config):
-        cls._validate_weights_dictionary(
-            'character_events_weights',
-            config.character_events_weights,
-            ['Cherrl', 'Nico', 'Patty', 'Fur', 'Selfi', 'Mia', 'Vivianne', 'Ghosh', 'Beldo'])
+        def _validate_characters_events_weights(self):
+            self._validate_weights_dictionary(
+                'character_events_weights',
+                self._config.character_events_weights,
+                ['Cherrl', 'Nico', 'Patty', 'Fur', 'Selfi', 'Mia', 'Vivianne', 'Ghosh', 'Beldo'])
 
-    @classmethod
-    def _validate_traps_weights(cls, config):
-        cls._validate_weights_dictionary(
-            'traps_weights',
-            config.traps_weights,
-            ['Poison', 'Sleep', 'Upheaval', 'Crack', 'Go up', 'Paralyze', 'Blinder'])
+        def _validate_traps_weights(self):
+            self._validate_weights_dictionary(
+                'traps_weights',
+                self._config.traps_weights,
+                ['Slam', 'Sleep', 'Upheaval', 'Crack', 'Go up', 'Blinder'])
 
-    @classmethod
-    def _validate_weights_dictionary(cls, dictionary_name, weights_dictionary, expected_keys):
-        missing_keys = set(expected_keys) - set(weights_dictionary.keys())
-        if len(missing_keys) > 0:
-            missing_keys_string = ', '.join(f'"{missing_key}"' for missing_key in missing_keys)
-            raise cls.InvalidConfig(f'"{dictionary_name}" - missing weights for: {missing_keys_string}')
-        excessive_keys = set(weights_dictionary.keys()) - set(expected_keys)
-        if len(excessive_keys) > 0:
-            excessive_keys_string = ', '.join(f'"{excessive_key}"' for excessive_key in excessive_keys)
-            raise cls.InvalidConfig(f'"{dictionary_name}" - excessive_keys weights for: {excessive_keys_string}')
-        if sum(weights_dictionary.values()) == 0:
-            raise cls.InvalidConfig(f'"{dictionary_name}" - all weights are 0s')
+        def _validate_weights_dictionary(self, dictionary_name, weights_dictionary, expected_keys):
+            missing_keys = set(expected_keys) - set(weights_dictionary.keys())
+            if len(missing_keys) > 0:
+                missing_keys_string = ', '.join(f'"{missing_key}"' for missing_key in missing_keys)
+                raise self.InvalidConfig(f'"{dictionary_name}" - missing weights for: {missing_keys_string}')
+            excessive_keys = set(weights_dictionary.keys()) - set(expected_keys)
+            if len(excessive_keys) > 0:
+                excessive_keys_string = ', '.join(f'"{excessive_key}"' for excessive_key in excessive_keys)
+                raise self.InvalidConfig(f'"{dictionary_name}" - excessive_keys weights for: {excessive_keys_string}')
+            if sum(weights_dictionary.values()) == 0:
+                raise self.InvalidConfig(f'"{dictionary_name}" - all weights are 0s')
 
-    @classmethod
-    def _validate_experience_per_level(cls, config):
-        if config.levels.max_level == 0:
-            raise cls.InvalidConfig(f'No levels defined')
+        def _validate_experience_per_level(self):
+            if self._config.levels.max_level == 0:
+                raise self.InvalidConfig(f'No levels defined')
 
-    @classmethod
-    def _validate_monsters_traits(cls, config):
-        for monster_trait in config.monsters_traits.values():
-            if monster_trait.does_evolve() and monster_trait.evolves_into not in config.monsters_traits:
-                raise cls.InvalidConfig(
-                    f'{monster_trait.name} - unknown monster to evolve to - {monster_trait.evolves_into}')
+        def _validate_monsters_traits(self):
+            for monster_trait in self._config.monsters_traits.values():
+                try:
+                    spell_type = 'native'
+                    Spells.find_spell_category_traits(monster_trait.native_spell_base_name)
+                    spell_type = 'dormant'
+                    Spells.find_spell_category_traits(monster_trait.dormant_spell_base_name)
+                except ValueError as exc:
+                    raise self.InvalidConfig(f'{monster_trait.name} - {spell_type} spell parsing error. {exc.args[0]}.')
+                if monster_trait.does_evolve() and monster_trait.evolves_into not in self._config.monsters_traits:
+                    raise self.InvalidConfig(
+                        f'{monster_trait.name} - unknown monster to evolve to - {monster_trait.evolves_into}')
 
-    @classmethod
-    def _validate_floors(cls, config):
-        if config.highest_floor == 0:
-            raise cls.InvalidConfig(f'No floors specified')
-        for index, floor in enumerate(config.floors):
-            if len(floor.monsters) == 0:
-                raise cls.InvalidConfig(f'Floor at index {index} has no monsters')
-            for monster in floor.monsters:
-                if monster.name not in config.monsters_traits:
-                    raise cls.InvalidConfig(f'Floor at index {index} has unknown monster "{monster.name}"')
+        def _validate_floors(self):
+            if self._config.highest_floor == 0:
+                raise self.InvalidConfig(f'No floors specified')
+            for index, floor in enumerate(self._config.floors):
+                if len(floor.monsters) == 0:
+                    raise self.InvalidConfig(f'Floor at index {index} has no monsters')
+                for monster in floor.monsters:
+                    if monster.name not in self._config.monsters_traits:
+                        raise self.InvalidConfig(f'Floor at index {index} has unknown monster "{monster.name}"')

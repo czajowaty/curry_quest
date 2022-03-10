@@ -1,6 +1,7 @@
 import argparse
 from ad_rando.seed_generator import RandoCommandHandler
 import asyncio
+from bot_config import BotConfig
 from curry_quest import Controller as CurryQuestController, CurryQuest, Config as CurryQuestConfig, StateFilesHandler
 import discord
 import discord_helpers
@@ -10,9 +11,9 @@ import sys
 
 
 class CurryQuestDiscordClient(discord.Client):
-    def __init__(self, curry_quest_config, state_files_directory):
+    def __init__(self, bot_config: BotConfig, curry_quest_config: CurryQuestConfig, state_files_directory):
         super().__init__()
-        self._curry_quest_config = curry_quest_config
+        self._bot_config = bot_config
         curry_quest_controller = CurryQuestController(curry_quest_config, StateFilesHandler(state_files_directory))
         self._curry_quest_client = CurryQuest(curry_quest_controller, curry_quest_config)
 
@@ -71,14 +72,67 @@ class CurryQuestDiscordClient(discord.Client):
         await channel.send('\n'.join(discord_helpers.curry_message(response) for response in responses))
 
 
+class CurryQuestOfflineClient:
+    EXIT_COMMAND = 'exit'
+    JOIN_COMMAND = 'join'
+    PART_COMMAND = 'part'
+    SPECIAL_COMMANDS = [EXIT_COMMAND, JOIN_COMMAND, PART_COMMAND]
+    PLAYER_ID = 1
+
+    class InvalidCommand(Exception):
+        pass
+
+    def __init__(self, curry_quest_config: CurryQuestConfig, state_files_directory):
+        self._controller = CurryQuestController(curry_quest_config, StateFilesHandler(state_files_directory))
+        self._controller.set_response_event_handler(lambda msg: print(f"Response - {msg}"))
+
+    def run(self):
+        asyncio.run(self._main_loop())
+
+    async def _main_loop(self):
+        self._controller.start_timers()
+        while True:
+            command, args = await asyncio.to_thread(self._get_command)
+            if command == self.EXIT_COMMAND:
+                return
+            if command == self.JOIN_COMMAND:
+                self._controller.add_player(self.PLAYER_ID)
+            elif command == self.PART_COMMAND:
+                self._controller.remove_player(self.PLAYER_ID)
+            else:
+                self._controller.handle_admin_action(self.PLAYER_ID, command, args)
+
+    def _get_command(self):
+        while True:
+            command_line = input("Enter command [command arg1 arg2 arg3 ...]: ")
+            try:
+                return self._parse(command_line)
+            except self.InvalidCommand as exc:
+                print(f"Invalid command: {exc}")
+
+    def _parse(self, command_line: str):
+        splitted = command_line.split()
+        if len(splitted) == 0:
+            raise self.InvalidCommand('Cannot be empty.')
+        if splitted[0] in self.SPECIAL_COMMANDS:
+            return self._build_command(command=splitted[0])
+        command, args = splitted[0], splitted[1:]
+        return self._build_command(command, args)
+
+    def _build_command(self, command: str='', args: list[str]=[]):
+        return command, args
+
+
 logger = logging.getLogger(__name__)
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('token')
+    parser.add_argument('bot_config', type=argparse.FileType('r'))
     parser.add_argument('curry_quest_config', type=argparse.FileType('r'))
     parser.add_argument('-d', '--state_files_directory', default='.')
+    parser.add_argument('--offline', action='store_true')
     return parser.parse_args()
 
 
@@ -106,8 +160,12 @@ def megabytes_to_bytes(mb):
 def main():
     args = parse_args()
     configure_logger()
-    curry_quest_config = CurryQuestConfig.from_file(args.curry_quest_config)
-    CurryQuestDiscordClient(curry_quest_config, args.state_files_directory).run(args.token)
+    bot_config = BotConfig.Parser(args.bot_config).parse()
+    curry_quest_config = CurryQuestConfig.Parser(args.curry_quest_config).parse()
+    if args.offline:
+        CurryQuestOfflineClient(curry_quest_config, args.state_files_directory).run()
+    else:
+        CurryQuestDiscordClient(bot_config, curry_quest_config, args.state_files_directory).run(args.token)
 
 
 if __name__ == '__main__':
