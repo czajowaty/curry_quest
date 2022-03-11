@@ -63,7 +63,7 @@ class StateFilesLoader:
         try:
             with open(state_file_path, mode='r') as state_file:
                 state_machine = StateMachine.load(state_file, self._game_config)
+                self._state_machines[player_id] = state_machine
                 logger.info(f"Loaded '{player_id}'s' state.")
-                return state_machine
         except IOError as exc:
             logger.error(f"Error while loading '{player_id}'s' state. Reason - {exc}.")

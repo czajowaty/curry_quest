@@ -55,7 +55,9 @@ class StateCharacterEvent(StateBase):
         familiar_for_trade_traits = self._context.familiar.traits
         while familiar_for_trade_traits.name == self._context.familiar.traits.name:
             familiar_for_trade_traits = self._context.rng.choice(list(self.game_config.monsters_traits.values()))
-        familiar_for_trade = UnitCreator(familiar_for_trade_traits).create(self._context.familiar.level)
+        familiar_for_trade = \
+            UnitCreator(familiar_for_trade_traits) \
+            .create(self._context.familiar.level, levels=self.game_config.levels)
         familiar_for_trade.exp = self._context.familiar.exp
         self._context.buffer_unit(familiar_for_trade)
         return (commands.START_FAMILIAR_TRADE, ()), 'She offers you a familiar exchange.'
@@ -70,7 +72,7 @@ class StateCharacterEvent(StateBase):
 
     def _handle_ghosh_encounter(self):
         ghosh_traits = self.game_config.special_units_traits.ghosh
-        ghosh = UnitCreator(ghosh_traits).create(self._context.familiar.level)
+        ghosh = UnitCreator(ghosh_traits).create(self._context.familiar.level, levels=self.game_config.levels)
         return (commands.START_BATTLE, (ghosh,)), 'He wants to fight you!'
 
     def _handle_beldo_encounter(self):

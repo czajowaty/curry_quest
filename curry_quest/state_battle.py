@@ -28,7 +28,7 @@ class StateBattleEvent(StateBase):
             return self._context.generate_floor_monster(floor=self._context.floor)
         else:
             monster_level = self._monster_level if self._monster_level > 0 else self._context.familiar.level
-            return UnitCreator(self._monster_traits).create(monster_level)
+            return UnitCreator(self._monster_traits).create(monster_level, levels=self.game_config.levels)
 
     @classmethod
     def _parse_args(cls, context, args):

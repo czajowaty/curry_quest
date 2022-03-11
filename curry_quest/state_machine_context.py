@@ -200,7 +200,7 @@ class StateMachineContext:
         monster_traits = self.game_config.monsters_traits[monster_descriptor.name].copy()
         self._remove_enemy_forbidden_talents(monster_traits)
         monster_level = min(monster_descriptor.level + level_increase, self.game_config.levels.max_level)
-        return UnitCreator(monster_traits).create(monster_level)
+        return UnitCreator(monster_traits).create(monster_level, levels=self.game_config.levels)
 
     def random_selection_with_weights(self, element_weight_dictionary: dict):
         return self.rng.choices(list(element_weight_dictionary.keys()), list(element_weight_dictionary.values()))[0]

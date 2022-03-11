@@ -8,7 +8,7 @@ class UnitCreator:
     def __init__(self, unit_traits: UnitTraits):
         self._unit_traits = unit_traits
 
-    def create(self, level, levels: Config.Levels=Config.Levels()) -> Unit:
+    def create(self, level, levels: Config.Levels) -> Unit:
         stats_calculator = StatsCalculator(self._unit_traits)
         unit = Unit(self._unit_traits, levels)
         unit.level = level
@@ -20,4 +20,6 @@ class UnitCreator:
         unit.defense = stats_calculator.defense(level)
         unit.luck = stats_calculator.luck(level)
         unit.set_spell_level(level)
+        if level > 0:
+            unit.exp = levels.experience_for_next_level(level - 1)
         return unit
