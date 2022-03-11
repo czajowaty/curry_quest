@@ -32,11 +32,17 @@ class StateInitialize(StateWithMonster):
 
     def _generate_familiar(self):
         monsters_traits = self._context.game_config.monsters_traits
-        familiar_name = self._monster_name or self._context.rng.choice(list(monsters_traits.keys()))
+        familiar_name = self._monster_name or self._context.rng.choice(list(self._non_evolved_monster_traits()))
         monster_level = self._monster_level or 1
         familiar = UnitCreator(monsters_traits[familiar_name]) \
             .create(level=monster_level, levels=self.game_config.levels)
         self._context.familiar = familiar
+
+    def _non_evolved_monster_traits(self):
+        monsters_traits = self._context.game_config.monsters_traits
+        x = [monster_traits.name for monster_traits in monsters_traits.values() if not monster_traits.is_evolved]
+        print(x)
+        return x
 
     def _set_start_inventory(self):
         inventory = self._context.inventory
