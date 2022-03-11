@@ -15,6 +15,11 @@ class Config:
             self.event_interval = 0
             self.event_penalty_duration = 0
 
+    class EarthquakeSettings:
+        def __init__(self):
+            self.earthquake_turn = 0
+            self.floor_collapse_turn = 0
+
     class Probabilities:
         def __init__(self):
             self.flee = 0.0
@@ -44,6 +49,7 @@ class Config:
 
     def __init__(self):
         self._timers = self.Timers()
+        self._eq_settings = self.EarthquakeSettings()
         self._probabilities = self.Probabilities()
         self._player_selection_weights = self.PlayerSelectionWeights()
         self.events_weights = {}
@@ -58,6 +64,10 @@ class Config:
     @property
     def timers(self):
         return self._timers
+
+    @property
+    def eq_settings(self):
+        return self._eq_settings
 
     @property
     def probabilities(self):
@@ -93,6 +103,7 @@ class Config:
 
         def _parse(self):
             self._read_timers()
+            self._read_eq_settings()
             self._read_probabilities()
             self._read_player_selection_weights()
             self._config.events_weights = self._config_json['events_weights']
@@ -114,6 +125,16 @@ class Config:
                 timers.event_penalty_duration = int(timers_json['event_penalty_duration'])
             except ValueError as exc:
                 raise self.InvalidConfig(f"{timers_json}: {exc}")
+
+        def _read_eq_settings(self):
+            eq_settings = self._config._eq_settings
+            eq_settings_json = self._config_json['earthquake_settings']
+            try:
+                eq_settings.earthquake_turn = int(eq_settings_json['turns_to_earthquake'])
+                eq_settings.floor_collapse_turn = eq_settings.earthquake_turn
+                eq_settings.floor_collapse_turn += int(eq_settings_json['turns_from_earthquake_to_floor_collapse'])
+            except ValueError as exc:
+                raise self.InvalidConfig(f"{eq_settings_json}: {exc}")
 
         def _read_probabilities(self):
             probabilities = self._config._probabilities
@@ -243,6 +264,7 @@ class Config:
             return floor
 
         def _validate_config(self):
+            self._validate_earthquake_settings()
             self._validate_probabilities()
             self._validate_events_weights()
             self._validate_found_items_weights()
@@ -251,6 +273,12 @@ class Config:
             self._validate_experience_per_level()
             self._validate_monsters_traits()
             self._validate_floors()
+
+        def _validate_earthquake_settings(self):
+            if self._config.eq_settings.earthquake_turn == 0:
+                raise self.InvalidConfig(f'"turns_to_earthquake" value must be greater than 0.')
+            if self._config.eq_settings.floor_collapse_turn == self._config.eq_settings.earthquake_turn:
+                raise self.InvalidConfig(f'"turns_from_earthquake_to_floor_collapse" value must be greater than 0.')
 
         def _validate_probabilities(self):
             self._validate_probability('flee', self._config.probabilities.flee)

@@ -2,7 +2,6 @@ import datetime
 import json
 from curry_quest import commands
 from curry_quest.errors import InvalidOperation
-from curry_quest.genus import Genus
 from curry_quest.items import normalize_item_name, all_items
 from curry_quest.spell import Spells
 from curry_quest.state_base import StateBase
@@ -71,7 +70,8 @@ class StateMachine:
             commands.TRAP_EVENT: Transition.by_admin(StateTrapEvent),
             commands.CHARACTER_EVENT: Transition.by_admin(StateCharacterEvent),
             commands.ELEVATOR_EVENT: Transition.by_admin(StateElevatorEvent),
-            commands.FAMILIAR_EVENT: Transition.by_admin(StateFamiliarEvent)
+            commands.FAMILIAR_EVENT: Transition.by_admin(StateFamiliarEvent),
+            commands.GO_UP: Transition.by_admin(StateGoUp)
         },
         StateGenerateEvent: {commands.EVENT_GENERATED: Transition.by_admin(StateWaitForEvent)},
         StateBattleEvent: {commands.START_BATTLE: Transition.by_admin(StateStartBattle)},
@@ -192,7 +192,8 @@ class StateMachine:
             commands.GIVE_FAMILIAR_SPELL: (True, self._give_familiar_spell),
             commands.GIVE_FAMILIAR_STATUS: (True, self._give_familiar_status),
             commands.GIVE_ENEMY_SPELL: (True, self._give_enemy_spell),
-            commands.GIVE_ENEMY_STATUS: (True, self._give_enemy_status)
+            commands.GIVE_ENEMY_STATUS: (True, self._give_enemy_status),
+            commands.SHOW_TURN_COUNTERS: (True, self._handle_turn_counters_query)
         }
 
     @property
@@ -442,6 +443,18 @@ class StateMachine:
             return int(status_duration_string)
         except ValueError:
             raise InvalidOperation(f"'{status_duration_string}' is not valid duration.")
+
+    def _handle_turn_counters_query(self, action):
+        if self._has_entered_tower():
+            response = f'Total turns: {self._context.total_turns_counter}. '
+            response += f'Floor turns counter: {self._context.floor_turns_counter}.\n'
+            response += f'Earthquake: '
+            turns_until_eq = self._context.turns_until_earthquake()
+            response += 'done' if turns_until_eq <= 0 else f'in {turns_until_eq} turns'
+            response += f'\nFloor collapse: in {self._context.turns_until_floor_collapse()}'
+            self._context.add_response(response)
+        else:
+            self._handle_generic_action_before_entering_tower()
 
     def _handle_generic_action_before_entering_tower(self):
         self._context.add_response(f"You did not enter the tower yet.")

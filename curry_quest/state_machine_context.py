@@ -79,6 +79,8 @@ class StateMachineContext:
         self._rng = random.Random()
         self._responses = []
         self._generated_action = None
+        self._total_turns_counter = 0
+        self._floor_turns_counter = 0
 
     def to_json(self):
         context_copy = copy.deepcopy(self)
@@ -109,6 +111,7 @@ class StateMachineContext:
     @floor.setter
     def floor(self, value):
         self._floor = value
+        self._floor_turns_counter = 0
 
     @property
     def familiar(self) -> Unit:
@@ -234,3 +237,34 @@ class StateMachineContext:
         responses = self.peek_responses()
         self._responses.clear()
         return responses
+
+    @property
+    def total_turns_counter(self):
+        return self._total_turns_counter
+
+    @property
+    def floor_turns_counter(self):
+        return self._floor_turns_counter
+
+    def increase_turns_counter(self):
+        self._total_turns_counter += 1
+        self._floor_turns_counter += 1
+
+    def is_earthquake_turn(self):
+        return self._floor_turns_counter == self.game_config.eq_settings.earthquake_turn
+
+    def turns_until_earthquake(self):
+        return self._turns_until_turn(self.game_config.eq_settings.earthquake_turn)
+
+    def is_earthquake_done(self):
+        return self.turns_until_earthquake() == 0
+
+    def is_floor_collapse_turn(self):
+        return self._floor_turns_counter >= self.game_config.eq_settings.floor_collapse_turn
+
+    def turns_until_floor_collapse(self):
+        return self._turns_until_turn(self.game_config.eq_settings.floor_collapse_turn)
+
+    def _turns_until_turn(self, turn):
+        result = turn - self._floor_turns_counter
+        return result if result > 0 else 0

@@ -156,7 +156,10 @@ class StateFamiliarTradeRejected(StateBase):
 class StateEvolveFamiliar(StateBase):
     def on_enter(self):
         familiar = self._context.familiar
-        evolved_monster_traits = self.game_config.monsters_traits[familiar.traits.evolves_into]
-        familiar.evolve(evolved_monster_traits)
-        self._context.add_response(f"Your familiar evolved into {familiar.name}!")
+        if familiar.traits.evolves_into is None:
+            self._context.add_response(f"Your familiar cannot evolve.")
+        else:
+            evolved_monster_traits = self.game_config.monsters_traits[familiar.traits.evolves_into]
+            familiar.evolve(evolved_monster_traits)
+            self._context.add_response(f"Your familiar evolved into {familiar.name}!")
         self._context.generate_action(commands.EVENT_FINISHED)
