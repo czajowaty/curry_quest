@@ -1,13 +1,13 @@
-import copy
-import jsonpickle
 import logging
 from curry_quest.errors import InvalidOperation
+from curry_quest.jsonable import Jsonable, JsonReaderHelper
 from curry_quest.state_machine_context import StateMachineContext
+from abc import abstractmethod
 
 logger = logging.getLogger(__name__)
 
 
-class StateBase:
+class StateBase(Jsonable):
     class ArgsParseError(Exception):
         pass
 
@@ -17,16 +17,24 @@ class StateBase:
     def __init__(self, context: StateMachineContext):
         self._context = context
 
-    def to_json(self):
-        state_copy = copy.deepcopy(self)
-        del state_copy._context
-        return jsonpickle.encode(state_copy)
+    def to_json_object(self):
+        json_object = self._to_json_object()
+        json_object['state_name'] = self.state_name()
+        return json_object
+
+    def _to_json_object(self):
+        return {}
 
     @classmethod
-    def from_json(cls, state_json, context: StateMachineContext):
-        state = jsonpickle.decode(state_json)
-        state._context = context
-        return state
+    def state_name(cls):
+        return cls.__name__
+
+    def from_json_object(self, json_object):
+        raise NotImplementedError(f'{self.__class__.__name__}.{self.from_json_object}')
+
+    @classmethod
+    def create_from_json_object(cls, json_reader_helper: JsonReaderHelper, context):
+        return cls(context)
 
     @property
     def name(self):

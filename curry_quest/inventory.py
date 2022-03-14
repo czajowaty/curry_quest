@@ -1,11 +1,20 @@
 from curry_quest.errors import InvalidOperation
-from curry_quest.items import normalize_item_name, Item
+from curry_quest.items import normalize_item_name, Item, ItemJsonLoader
+from curry_quest.jsonable import Jsonable
 
 
-class Inventory:
+class Inventory(Jsonable):
     def __init__(self, capacity=5):
         self._capacity = capacity
         self._items: list[Item] = []
+
+    def to_json_object(self):
+        return [item.to_json_object() for item in self._items]
+
+    def from_json_object(self, json_objects_list):
+        self.clear()
+        for item_object in json_objects_list:
+            self.add_item(ItemJsonLoader.from_json_object(item_object))
 
     @property
     def size(self) -> int:

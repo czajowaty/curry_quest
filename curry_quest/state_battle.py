@@ -1,5 +1,6 @@
 from curry_quest import commands
 from curry_quest.damage_calculator import DamageCalculator
+from curry_quest.jsonable import JsonReaderHelper
 from curry_quest.items import Item
 from curry_quest.state_base import StateBase
 from curry_quest.state_with_inventory_item import StateWithInventoryItem
@@ -7,6 +8,7 @@ from curry_quest.stats_calculator import StatsCalculator
 from curry_quest.state_machine_context import BattleContext
 from curry_quest.statuses import Statuses
 from curry_quest.talents import Talents
+from curry_quest.traits import UnitTraits
 from curry_quest.unit import Unit
 from curry_quest.unit_creator import UnitCreator
 
@@ -15,10 +17,27 @@ RelativeHeight = DamageCalculator.RelativeHeight
 
 
 class StateBattleEvent(StateBase):
-    def __init__(self, context, monster_traits: dict=None, monster_level: int=0):
+    def __init__(self, context, monster_traits: UnitTraits=None, monster_level: int=0):
         super().__init__(context)
         self._monster_traits = monster_traits
         self._monster_level = monster_level
+
+    def _to_json_object(self):
+        return {
+            'monster_name': None if self._monster_traits is None else self._monster_traits.name,
+            'monster_level': self._monster_level
+        }
+
+    @classmethod
+    def create_from_json_object(cls, json_reader_helper: JsonReaderHelper, context):
+        monster_name = json_reader_helper.read_optional_value_of_type('monster_name', str)
+        monster_level = json_reader_helper.read_optional_value_of_type('monster_level', int)
+        args = []
+        if monster_name is not None:
+            args.append(monster_name)
+            if monster_level is not None:
+                args.append(monster_level)
+        return cls.create(context, args)
 
     def on_enter(self):
         self._context.generate_action(commands.START_BATTLE, self._select_enemy())
@@ -70,6 +89,13 @@ class StateStartBattle(StateBattleBase):
         super().__init__(context)
         self._enemy = enemy
 
+    def _to_json_object(self):
+        return {'enemy': self._enemy.to_json_object()}
+
+    @classmethod
+    def create_from_json_object(cls, json_reader_helper: JsonReaderHelper, context):
+        return cls.create(context, (context.create_monster_from_json_object(json_reader_helper.read_dict('enemy')),))
+
     def on_enter(self):
         enemy = self._enemy
         self._context.add_response(f"You encountered a LVL {enemy.level} {enemy.name} ({enemy.hp} HP).")
@@ -87,6 +113,13 @@ class StateBattlePreparePhase(StateBattleBase):
     def __init__(self, context, prepare_phase_turn_used: bool):
         super().__init__(context)
         self._prepare_phase_turn_used = prepare_phase_turn_used
+
+    def _to_json_object(self):
+        return {'prepare_phase_turn_used': self._prepare_phase_turn_used}
+
+    @classmethod
+    def create_from_json_object(cls, json_reader_helper: JsonReaderHelper, context):
+        return cls.create(context, (json_reader_helper.read_bool('prepare_phase_turn_used'),))
 
     def on_enter(self):
         if self._context.familiar.has_status(Statuses.Sleep):

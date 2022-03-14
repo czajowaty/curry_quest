@@ -1,11 +1,21 @@
 from curry_quest import commands
 from curry_quest.state_base import StateBase
+from curry_quest.jsonable import JsonReaderHelper
 
 
 class StateWaitForEvent(StateBase):
     def __init__(self, context, event_command=None):
         super().__init__(context)
         self._event_command = event_command
+
+    def _to_json_object(self):
+        return {'event_command': self._event_command}
+
+    @classmethod
+    def create_from_json_object(cls, json_reader_helper: JsonReaderHelper, context):
+        return cls.create(
+            context,
+            (json_reader_helper.read_optional_value_of_type('event_command', str),))
 
     def on_enter(self):
         if self._event_command is None:

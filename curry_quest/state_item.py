@@ -1,13 +1,22 @@
 from curry_quest import commands
-from curry_quest.items import normalize_item_name, all_items
+from curry_quest.items import Item, normalize_item_name, all_items
 from curry_quest.state_base import StateBase
 from curry_quest.state_with_inventory_item import StateWithInventoryItem
+from curry_quest.jsonable import JsonReaderHelper
 
 
 class StateItemEvent(StateBase):
-    def __init__(self, context, item=None):
+    def __init__(self, context, item: Item=None):
         super().__init__(context)
         self._item = item
+
+    def _to_json_object(self):
+        return {'item_name': None if self._item is None else self._item.name}
+
+    @classmethod
+    def create_from_json_object(cls, json_reader_helper: JsonReaderHelper, context):
+        item_name = json_reader_helper.read_optional_value_of_type('item_name', str)
+        return cls.create(context, () if item_name is None else (item_name,))
 
     def on_enter(self):
         item = self._select_item()

@@ -1,6 +1,6 @@
 import datetime
-import json
 from curry_quest import commands
+from curry_quest.config import Config
 from curry_quest.errors import InvalidOperation
 from curry_quest.items import normalize_item_name, all_items
 from curry_quest.spell import Spells
@@ -23,6 +23,7 @@ from curry_quest.state_machine_context import StateMachineContext
 from curry_quest.state_trap import StateTrapEvent
 import logging
 from curry_quest.statuses import Statuses
+from curry_quest.jsonable import Jsonable, JsonReaderHelper, InvalidJson
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ class StateGameOver(StateBase):
     pass
 
 
-class StateMachine:
+class StateMachine(Jsonable):
     VERSION = 2
     TRANSITIONS = {
         StateStart: {commands.STARTED: Transition.by_admin(StateInitialize)},
@@ -173,7 +174,7 @@ class StateMachine:
         StateGameOver: {commands.RESTART: Transition.by_admin(StateStart)}
     }
 
-    def __init__(self, game_config: dict, player_id: int):
+    def __init__(self, game_config: Config, player_id: int):
         self._context = StateMachineContext(game_config)
         self._player_id = player_id
         self._last_responses = []
@@ -213,24 +214,39 @@ class StateMachine:
     def event_selection_penalty_end_dt(self) -> datetime.datetime:
         return self._event_selection_penalty_end_dt
 
-    def save(self, f):
-        state_machine_json = {
-            'version': self.VERSION,
-            'player': self.player_id,
-            'responses': self._last_responses,
-            'context': self._context.to_json(),
-            'state': self._state.to_json()
-        }
-        json.dump(state_machine_json, f)
+    def to_json_object(self):
+        return {
+                'version': self.VERSION,
+                'player': self.player_id,
+                'responses': self._last_responses,
+                'context': self._context.to_json_object(),
+                'state': self._state.to_json_object()
+            }
+
+    def from_json_object(self, json_object):
+        json_reader_helper = JsonReaderHelper(json_object)
+        self._last_responses = json_reader_helper.read_value_of_type_with_default('responses', list, default=[])
+        self._context.from_json_object(json_reader_helper.read_value_of_type_with_default('context', dict, default={}))
+        self._create_state_from_json_object(json_reader_helper.read_dict('state'))
 
     @classmethod
-    def load(cls, f, game_config) -> '__class__':
-        state_machine_json = json.load(f)
-        state_machine = cls(game_config, state_machine_json['player'])
-        state_machine._last_responses = state_machine_json.get('responses', [])
-        state_machine._context = StateMachineContext.from_json(state_machine_json['context'], game_config)
-        state_machine._state = StateBase.from_json(state_machine_json['state'], state_machine._context)
-        return state_machine
+    def player_id_from_json_object(cls, json_object):
+        json_reader_helper = JsonReaderHelper(json_object)
+        return json_reader_helper.read_int_with_min('player', min_value=1)
+
+    def _create_state_from_json_object(self, json_object):
+        json_reader_helper = JsonReaderHelper(json_object)
+        state_name = json_reader_helper.read_string('state_name')
+        state_class = self._find_state_class(state_name)
+        if state_class is None:
+            raise InvalidJson(f'Unknown state "{state_name}". JSON object: {json_object}.')
+        self._state = state_class.create_from_json_object(json_reader_helper, self._context)
+
+    def _find_state_class(self, state_name):
+        for state_class in self.TRANSITIONS.keys():
+            if state_class.state_name() == state_name:
+                return state_class
+        return None
 
     def is_started(self) -> bool:
         return type(self._state) is not StateStart
@@ -247,8 +263,8 @@ class StateMachine:
     def on_action(self, action):
         try:
             if not self._handle_generic_action(action):
-                self._handle_non_generic_action(action)
-                self._last_responses = self._context.peek_responses()
+                if self._handle_non_generic_action(action):
+                    self._last_responses = self._context.peek_responses()
         except InvalidOperation as exc:
             self._context.add_response(str(exc))
         return self._context.take_responses()
@@ -466,23 +482,27 @@ class StateMachine:
         state_transition_table = self._current_state_transition_table()
         if state_transition_table is None:
             self._on_unknown_state()
-            return
+            return False
         transition = state_transition_table.get(action.command)
         if transition is None:
             self._on_unexpected_action(action)
+            return False
         else:
             self._change_state(transition, action)
             if self._context.has_action():
                 self._handle_non_generic_action(self._context.take_action())
+            return True
 
     def _current_state_transition_table(self) -> dict:
         return self.TRANSITIONS.get(type(self._state))
 
     def _on_unknown_state(self):
         logger.error(f"{self} is in state {self._state} for which there is no transition.")
+        self._context.add_response(f'{self._state} does not have any transitions.')
 
     def _on_unexpected_action(self, action):
         logger.warning(f"{self} in state {self._state} does not have transition for '{action.command}'")
+        self._context.add_response(f'Unknown command "{action.command}".')
 
     def _change_state(self, transition, action):
         if transition.guard(action):

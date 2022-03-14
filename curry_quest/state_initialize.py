@@ -2,7 +2,6 @@ import logging
 from curry_quest import commands, items
 from curry_quest.state_base import StateBase
 from curry_quest.state_with_monster import StateWithMonster
-from curry_quest.unit_creator import UnitCreator
 
 logger = logging.getLogger(__name__)
 
@@ -10,7 +9,7 @@ logger = logging.getLogger(__name__)
 class StateInitialize(StateWithMonster):
     def on_enter(self):
         self._context.floor = 0
-        self._generate_familiar()
+        self._context.familiar = self._generate_monster_or_non_evolved()
         self._set_start_inventory()
         self._context.clear_battle_context()
         self._context.clear_item_buffer()
@@ -29,20 +28,6 @@ class StateInitialize(StateWithMonster):
             "Local legend speaks of a dangerous tower full of monsters... and loot! Could this really be it?! "
             "You journey through the desert towards the ancient structure, thinking of all the riches inside. "
             "After many days of travel, you finally reach the imposing doors. Will you brave the dangers within?")
-
-    def _generate_familiar(self):
-        monsters_traits = self._context.game_config.monsters_traits
-        familiar_name = self._monster_name or self._context.rng.choice(list(self._non_evolved_monster_traits()))
-        monster_level = self._monster_level or 1
-        familiar = UnitCreator(monsters_traits[familiar_name]) \
-            .create(level=monster_level, levels=self.game_config.levels)
-        self._context.familiar = familiar
-
-    def _non_evolved_monster_traits(self):
-        monsters_traits = self._context.game_config.monsters_traits
-        x = [monster_traits.name for monster_traits in monsters_traits.values() if not monster_traits.is_evolved]
-        print(x)
-        return x
 
     def _set_start_inventory(self):
         inventory = self._context.inventory

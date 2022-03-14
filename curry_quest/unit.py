@@ -2,22 +2,31 @@ import logging
 from curry_quest.config import Config
 from curry_quest.errors import InvalidOperation
 from curry_quest.genus import Genus
+from curry_quest.jsonable import Jsonable, InvalidJson, JsonReaderHelper
 from curry_quest.spell import Spell, Spells
-from curry_quest.talents import Talents
-from curry_quest.traits import SpellTraits, UnitTraits
 from curry_quest.stats_calculator import StatsCalculator
 from curry_quest.statuses import Statuses
+from curry_quest.talents import Talents
+from curry_quest.traits import SpellTraits, UnitTraits
 
 logger = logging.getLogger(__name__)
 
 
-class Unit:
+class Unit(Jsonable):
+    MIN_LEVEL = 1
+    MIN_ALIVE_HP = 1
+    MIN_DEAD_HP = 0
+    MIN_MP = 0
+    MIN_ATTACK = 1
+    MIN_DEFENSE = 1
+    MIN_LUCK = 0
+
     def __init__(self, traits: UnitTraits, levels: Config.Levels):
         self._traits = traits
         self._levels = levels
         self.name = traits.name
         self.genus = traits.native_genus
-        self.level = 1
+        self.level = self.MIN_LEVEL
         self._talents = traits.talents
         self.max_hp = traits.base_hp
         self.hp = self.max_hp
@@ -26,7 +35,7 @@ class Unit:
         self.attack = traits.base_attack
         self.defense = traits.base_defense
         self.luck = traits.base_luck
-        self._timed_statuses = {}
+        self._timed_statuses: dict[Statuses, int] = {}
         self.clear_statuses()
         if traits.native_spell_base_name is not None:
             native_spell_traits = Spells.find_spell_traits(traits.native_spell_base_name, self.genus)
@@ -34,6 +43,73 @@ class Unit:
         else:
             self.clear_spell()
         self.exp = 0
+
+    def to_json_object(self):
+        unit_json_object = {
+            'traits_name': self.traits.name,
+            'name': self.name,
+            'genus': self.genus.value,
+            'level': self.level,
+            'talents': self._talents.value,
+            'max_hp': self._max_hp,
+            'hp': self._hp,
+            'max_mp': self._max_mp,
+            'mp': self._mp,
+            'attack': self._attack,
+            'defense': self._defense,
+            'luck': self._luck,
+            'statuses': self._statuses.value,
+            'timed_statuses': dict((status.value, duration) for status, duration in self._timed_statuses.items()),
+            'exp': self._exp
+        }
+        if self.has_spell():
+            unit_json_object['spell'] = {
+                'base_name': self._spell_traits.base_name,
+                'level': self._spell_level
+            }
+        return unit_json_object
+
+    def from_json_object(self, json_object):
+        json_reader_helper = JsonReaderHelper(json_object)
+        self.genus = json_reader_helper.read_enum('genus', Genus)
+        self.level = json_reader_helper.read_int_in_range('level', min_value=1, max_value=self._levels.max_level)
+        self._talents = json_reader_helper.read_enum('talents', Talents)
+        self.max_hp = json_reader_helper.read_int_with_min('max_hp', min_value=self.MIN_ALIVE_HP)
+        self.hp = json_reader_helper.read_int_with_min('hp', min_value=self.MIN_DEAD_HP)
+        self.max_mp = json_reader_helper.read_int_with_min('max_mp', min_value=self.MIN_MP)
+        self.mp = json_reader_helper.read_int_with_min('mp', min_value=self.MIN_MP)
+        self.attack = json_reader_helper.read_int_with_min('attack', min_value=self.MIN_ATTACK)
+        self.defense = json_reader_helper.read_int_with_min('defense', min_value=self.MIN_DEFENSE)
+        self.luck = json_reader_helper.read_int_with_min('luck', min_value=self.MIN_LUCK)
+        self.clear_statuses()
+        self.set_status(json_reader_helper.read_enum('statuses', Statuses))
+        for status_id, duration in json_reader_helper.read_dict('timed_statuses').items():
+            if not isinstance(duration, int):
+                self._raise_invalid_json(
+                    json_object,
+                    f'"{status_id}"="{duration}". '
+                    f'Duration "{duration}" expected to be integer, but is {type(duration)}.')
+            if duration > 0:
+                try:
+                    self.set_timed_status(Statuses(status_id), duration)
+                except ValueError:
+                    self._raise_invalid_json(json_object, f'"{status_id}" is not valid Status ID.')
+        self.exp = json_reader_helper.read_int_with_min('exp', min_value=0)
+        if 'spell' in json_object:
+            spell_json_object = json_reader_helper.read_dict('spell')
+            spell_json_reader_helper = JsonReaderHelper(spell_json_object)
+            spell_base_name = spell_json_reader_helper.read_string('base_name')
+            self.set_spell(
+                Spells.find_spell_traits(spell_base_name, self.genus),
+                level=spell_json_reader_helper.read_int_with_min('level', min_value=1))
+
+    def _raise_invalid_json(self, json_object, error_msg):
+        raise InvalidJson(f'{error_msg} JSON object: {self._json_object}".')
+
+    @classmethod
+    def traits_name_from_json_object(cls, json_object):
+        json_reader_helper = JsonReaderHelper(json_object)
+        return json_reader_helper.read_string('traits_name')
 
     @property
     def traits(self):
@@ -80,7 +156,7 @@ class Unit:
 
     @max_hp.setter
     def max_hp(self, value):
-        self._max_hp = max(value, 1)
+        self._max_hp = max(value, self.MIN_ALIVE_HP)
 
     @property
     def hp(self):
@@ -88,13 +164,13 @@ class Unit:
 
     @hp.setter
     def hp(self, value):
-        self._hp = max(value, 0)
+        self._hp = max(value, self.MIN_DEAD_HP)
 
     def is_hp_at_max(self) -> bool:
         return self.hp >= self.max_hp
 
     def is_dead(self) -> bool:
-        return self.hp <= 0
+        return self.hp <= self.MIN_DEAD_HP
 
     def restore_hp(self, recovery_amount=None):
         recovery_amount = recovery_amount or self.max_hp
@@ -110,7 +186,7 @@ class Unit:
 
     @max_mp.setter
     def max_mp(self, value):
-        self._max_mp = max(value, 0)
+        self._max_mp = max(value, self.MIN_MP)
 
     @property
     def mp(self):
@@ -118,7 +194,7 @@ class Unit:
 
     @mp.setter
     def mp(self, value):
-        self._mp = max(value, 0)
+        self._mp = max(value, self.MIN_MP)
 
     def is_mp_at_max(self) -> bool:
         return self.mp >= self.max_mp
@@ -138,7 +214,7 @@ class Unit:
 
     @attack.setter
     def attack(self, value):
-        self._attack = max(value, 1)
+        self._attack = max(value, self.MIN_ATTACK)
 
     @property
     def defense(self):
@@ -147,7 +223,7 @@ class Unit:
 
     @defense.setter
     def defense(self, value):
-        self._defense = max(value, 1)
+        self._defense = max(value, self.MIN_DEFENSE)
 
     @property
     def luck(self):
@@ -155,7 +231,7 @@ class Unit:
 
     @luck.setter
     def luck(self, value):
-        self._luck = max(value, 0)
+        self._luck = max(value, self.MIN_LUCK)
 
     def _stat_factor(self) -> float:
         STAT_BOOST_FACTOR = 0.5

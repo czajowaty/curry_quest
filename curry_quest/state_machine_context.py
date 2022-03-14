@@ -1,26 +1,58 @@
-import copy
+import json
 import jsonpickle
 import random
 from curry_quest.config import Config
 from curry_quest.errors import InvalidOperation
 from curry_quest.inventory import Inventory
-from curry_quest.unit import Unit
+from curry_quest.items import Item, ItemJsonLoader
+from curry_quest.jsonable import Jsonable, InvalidJson, JsonReaderHelper
 from curry_quest.state_machine_action import StateMachineAction
 from curry_quest.talents import Talents
 from curry_quest.traits import UnitTraits, SpellCastContext
+from curry_quest.unit import Unit
 from curry_quest.unit_creator import UnitCreator
-from curry_quest.items import Item
 
 
-class BattleContext:
+class BattleContext(Jsonable):
+    MIN_COUNTER = 0
+
     def __init__(self, enemy: Unit):
         self._enemy = enemy
-        self._prepare_phase_counter = 0
-        self._holy_scroll_counter = 0
+        self._prepare_phase_counter = self.MIN_COUNTER
+        self._holy_scroll_counter = self.MIN_COUNTER
         self.is_first_turn = True
         self.is_player_turn = True
         self.clear_turn_counter()
         self._finished = False
+
+    def to_json_object(self):
+        return {
+            'enemy': self._enemy.to_json_object(),
+            'prepare_phase_counter': self._prepare_phase_counter,
+            'holy_scroll_counter': self._holy_scroll_counter,
+            'is_first_turn': self.is_first_turn,
+            'is_player_turn': self.is_player_turn,
+            'turn_counter': self._turn_counter,
+            'finished': self._finished
+        }
+
+    def from_json_object(self, json_object):
+        json_reader_helper = JsonReaderHelper(json_object)
+        self._prepare_phase_counter = json_reader_helper.read_int_with_min(
+            'prepare_phase_counter',
+            min_value=self.MIN_COUNTER)
+        self._holy_scroll_counter = json_reader_helper.read_int_with_min(
+            'holy_scroll_counter',
+            min_value=self.MIN_COUNTER)
+        self.is_first_turn = json_reader_helper.read_bool('is_first_turn')
+        self.is_player_turn = json_reader_helper.read_bool('is_player_turn')
+        self._turn_counter = json_reader_helper.read_int_with_min('turn_counter', min_value=self.MIN_COUNTER)
+        self._finished = json_reader_helper.read_bool('finished')
+
+    @classmethod
+    def enemy_json_object(cls, json_object):
+        json_reader_helper = JsonReaderHelper(json_object)
+        return json_reader_helper.read_dict('enemy')
 
     @property
     def enemy(self) -> Unit:
@@ -30,16 +62,16 @@ class BattleContext:
         self._prepare_phase_counter = counter
 
     def is_prepare_phase(self) -> bool:
-        return self._prepare_phase_counter > 0
+        return self._prepare_phase_counter > self.MIN_COUNTER
 
     def dec_prepare_phase_counter(self):
         self._prepare_phase_counter -= 1
 
     def finish_prepare_phase(self):
-        self._prepare_phase_counter = 0
+        self._prepare_phase_counter = self.MIN_COUNTER
 
     def is_holy_scroll_active(self) -> bool:
-        return self._holy_scroll_counter > 0
+        return self._holy_scroll_counter > self.MIN_COUNTER
 
     def dec_holy_scroll_counter(self):
         self._holy_scroll_counter -= 1
@@ -55,7 +87,7 @@ class BattleContext:
         self._turn_counter += 1
 
     def clear_turn_counter(self):
-        self._turn_counter = 0
+        self._turn_counter = self.MIN_COUNTER
 
     def is_finished(self):
         return self._finished
@@ -64,13 +96,14 @@ class BattleContext:
         self._finished = True
 
 
-class StateMachineContext:
+class StateMachineContext(Jsonable):
     RESPONSE_LINE_BREAK = '\n'
+    MIN_FLOOR = 0
 
     def __init__(self, game_config: Config):
         self._game_config = game_config
         self._is_tutorial_done = False
-        self._floor = 0
+        self._floor = self.MIN_FLOOR
         self._familiar = None
         self._inventory = Inventory()
         self._battle_context = None
@@ -82,16 +115,66 @@ class StateMachineContext:
         self._total_turns_counter = 0
         self._floor_turns_counter = 0
 
-    def to_json(self):
-        context_copy = copy.deepcopy(self)
-        del context_copy._game_config
-        return jsonpickle.encode(context_copy)
+    def to_json_object(self):
+        json_object = {
+            'is_tutorial_done': self.is_tutorial_done,
+            'floor': self.floor,
+            'inventory': self.inventory.to_json_object(),
+            'rng_state': jsonpickle.encode(self.rng.getstate()),
+            'responses': self._responses,
+            'total_turns_counter': self._total_turns_counter,
+            'floor_turns_counter': self._floor_turns_counter
+        }
+        if self._familiar is not None:
+            json_object['familiar'] = self._familiar.to_json_object()
+        if self.is_in_battle():
+            json_object['battle_context'] = self.battle_context.to_json_object()
+        if self._item_buffer is not None:
+            json_object['item_buffer'] = self._item_buffer.to_json_object()
+        if self._unit_buffer is not None:
+            json_object['unit_buffer'] = self._unit_buffer.to_json_object()
+        return json_object
 
-    @classmethod
-    def from_json(cls, context_json, game_config):
-        context = jsonpickle.decode(context_json)
-        context._game_config = game_config
-        return context
+    def from_json_object(self, json_object):
+        json_reader_helper = JsonReaderHelper(json_object)
+        self._is_tutorial_done = json_reader_helper.read_bool('is_tutorial_done')
+        self._floor = json_reader_helper.read_int_in_range(
+            'floor',
+            min_value=self.MIN_FLOOR,
+            max_value=self.game_config.highest_floor)
+        self._inventory.from_json_object(json_object['inventory'])
+        if 'familiar' in json_object:
+            self._familiar = self.create_familiar_from_json_object(json_object['familiar'])
+        if 'battle_context' in json_object:
+            self._read_battle_context_from_json_object(json_reader_helper.read_dict('battle_context'))
+        if 'item_buffer' in json_object:
+            self.buffer_item(ItemJsonLoader.from_json_object(json_object['item_buffer']))
+        if 'unit_buffer' in json_object:
+            self.buffer_unit(self.create_monster_from_json_object(json_object['unit_buffer']))
+        self._rng.setstate(jsonpickle.decode(json_reader_helper.read_string('rng_state')))
+        self._responses = json_reader_helper.read_list('responses')
+        self._total_turns_counter = json_reader_helper.read_int_with_min('total_turns_counter', min_value=0)
+        self._floor_turns_counter = json_reader_helper.read_int_with_min('floor_turns_counter', min_value=0)
+
+    def create_familiar_from_json_object(self, unit_json_object):
+        return self._create_unit_from_json_object(unit_json_object, self.game_config.monsters_traits)
+
+    def create_monster_from_json_object(self, unit_json_object):
+        return self._create_unit_from_json_object(unit_json_object, self.game_config.all_units_traits)
+
+    def _create_unit_from_json_object(self, unit_json_object, units_traits):
+        traits_name = Unit.traits_name_from_json_object(unit_json_object)
+        if traits_name not in units_traits:
+            raise InvalidJson(f'Unknown unit name "{traits_name}". JSON object: {unit_json_object}.')
+        traits = units_traits[traits_name]
+        unit = Unit(traits, self.game_config.levels)
+        unit.from_json_object(unit_json_object)
+        return unit
+
+    def _read_battle_context_from_json_object(self, json_object):
+        enemy = self.create_monster_from_json_object(BattleContext.enemy_json_object(json_object))
+        self.start_battle(enemy)
+        self._battle_context.from_json_object(json_object)
 
     @property
     def game_config(self):
@@ -204,6 +287,12 @@ class StateMachineContext:
         self._remove_enemy_forbidden_talents(monster_traits)
         monster_level = min(monster_descriptor.level + level_increase, self.game_config.levels.max_level)
         return UnitCreator(monster_traits).create(monster_level, levels=self.game_config.levels)
+
+    def generate_non_evolved_monster(self, level: int) -> Unit:
+        monsters_traits = self.game_config.non_evolved_monster_traits
+        monster_name = self.rng.choice(list(monsters_traits.keys()))
+        return UnitCreator(monsters_traits[monster_name]) \
+            .create(level=level, levels=self.game_config.levels)
 
     def random_selection_with_weights(self, element_weight_dictionary: dict):
         return self.rng.choices(list(element_weight_dictionary.keys()), list(element_weight_dictionary.values()))[0]

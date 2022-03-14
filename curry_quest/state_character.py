@@ -3,12 +3,21 @@ from curry_quest.state_base import StateBase
 from curry_quest.unit_creator import UnitCreator
 from curry_quest.state_with_inventory_item import StateWithInventoryItem
 from curry_quest.statuses import Statuses
+from curry_quest.jsonable import JsonReaderHelper
 
 
 class StateCharacterEvent(StateBase):
     def __init__(self, context, character=None):
         super().__init__(context)
         self._character = character
+
+    def _to_json_object(self):
+        return {'character': self._character}
+
+    @classmethod
+    def create_from_json_object(cls, json_reader_helper: JsonReaderHelper, context):
+        character = json_reader_helper.read_optional_value_of_type('character', str)
+        return cls.create(context, () if character is None else (character,))
 
     def on_enter(self):
         character = self._select_character()

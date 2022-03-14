@@ -1,6 +1,8 @@
 from curry_quest.state_machine import StateMachine
+import json
 import logging
 import os.path
+from curry_quest.jsonable import InvalidJson
 
 logger = logging.getLogger(__name__)
 STATE_FILE_SUFFIX = '.json'
@@ -18,7 +20,7 @@ class StateFilesHandler:
         logger.debug(f"Saving state for '{player_id}'.")
         try:
             with open(self._player_state_file_path(player_id), mode='w') as player_state_file:
-                state_machine.save(player_state_file)
+                player_state_file.write(json.dumps(state_machine.to_json_object(), indent=2))
         except IOError as exc:
             logger.error(f"Could not save state file for '{player_id}'. Reason - {exc}.")
 
@@ -51,19 +53,17 @@ class StateFilesLoader:
 
     def _load_state_file(self, state_file_path: str):
         _, state_file_name = os.path.split(state_file_path)
-        player_id_string, file_extension = os.path.splitext(state_file_name)
+        _, file_extension = os.path.splitext(state_file_name)
         if file_extension != STATE_FILE_SUFFIX:
             logger.debug(f"Non-json file trying to be loaded - {state_file_path}.")
             return
         try:
-            player_id = int(player_id_string)
-        except ValueError:
-            logger.debug(f"State file name is not player id - {state_file_path}.")
-            return
-        try:
             with open(state_file_path, mode='r') as state_file:
-                state_machine = StateMachine.load(state_file, self._game_config)
+                state_json_object = json.load(state_file)
+                player_id = StateMachine.player_id_from_json_object(state_json_object)
+                state_machine = StateMachine(self._game_config, player_id)
+                state_machine.from_json_object(state_json_object)
                 self._state_machines[player_id] = state_machine
                 logger.info(f"Loaded '{player_id}'s' state.")
-        except IOError as exc:
-            logger.error(f"Error while loading '{player_id}'s' state. Reason - {exc}.")
+        except (IOError, json.JSONDecodeError, InvalidJson) as exc:
+            logger.error(f"Error while loading '{state_file_name}' state file. Reason - {exc}.")

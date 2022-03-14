@@ -1,11 +1,21 @@
 from curry_quest.items import normalize_item_name
 from curry_quest.state_base import StateBase
+from curry_quest.jsonable import JsonReaderHelper
 
 
 class StateWithInventoryItem(StateBase):
     def __init__(self, context, item_index: int):
         super().__init__(context)
         self._item_index = item_index
+
+    def _to_json_object(self):
+        return {'item_index': self._item_index}
+
+    @classmethod
+    def create_from_json_object(cls, json_reader_helper: JsonReaderHelper, context):
+        return cls(
+            context,
+            json_reader_helper.read_int_in_range('item_index', min_value=0, max_value=context.inventory.size))
 
     @classmethod
     def _parse_args(cls, context, args):

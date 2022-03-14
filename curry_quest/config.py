@@ -86,8 +86,25 @@ class Config:
         return self._monsters_traits
 
     @property
+    def non_evolved_monster_traits(self) -> Mapping[str, UnitTraits]:
+        monsters_traits = self.monsters_traits
+        return dict(
+            (monster_traits.name, monster_traits)
+            for monster_traits
+            in monsters_traits.values()
+            if not monster_traits.is_evolved)
+
+    @property
     def special_units_traits(self):
         return self._special_units_traits
+
+    @property
+    def all_units_traits(self) -> Mapping[str, UnitTraits]:
+        all_units_traits = {}
+        all_units_traits.update(self.monsters_traits)
+        ghosh_traits = self.special_units_traits.ghosh
+        all_units_traits[ghosh_traits.name] = ghosh_traits
+        return all_units_traits
 
     @property
     def floors(self) -> Sequence[FloorDescriptor]:

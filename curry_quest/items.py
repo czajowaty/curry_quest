@@ -1,4 +1,5 @@
 from curry_quest.errors import InvalidOperation
+from curry_quest.jsonable import InvalidJson, Jsonable, JsonReaderHelper
 
 
 def normalize_item_name(*item_name_parts: str):
@@ -6,7 +7,13 @@ def normalize_item_name(*item_name_parts: str):
     return item_name.replace(' ', '').lower()
 
 
-class Item:
+class Item(Jsonable):
+    def to_json_object(self):
+        return {'name': self.name}
+
+    def from_json_object(self):
+        pass
+
     @classmethod
     @property
     def name(cls) -> str:
@@ -141,6 +148,17 @@ class WaterBall(Item):
         familiar.restore_hp()
         familiar.restore_mp()
         return 'Your HP and MP have been restored to max.'
+
+
+class ItemJsonLoader:
+    @classmethod
+    def from_json_object(cls, json_object):
+        json_reader_helper = JsonReaderHelper(json_object)
+        item_name = json_reader_helper.read_string('name')
+        for item in all_items():
+            if item.name == item_name:
+                return item
+        raise InvalidJson(f'Unknown item JSON object. JSON object: {json_object}.')
 
 
 def all_items():
