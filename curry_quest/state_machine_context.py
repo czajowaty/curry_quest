@@ -1,4 +1,3 @@
-import json
 import jsonpickle
 import random
 from curry_quest.config import Config
@@ -11,6 +10,8 @@ from curry_quest.talents import Talents
 from curry_quest.traits import UnitTraits, SpellCastContext
 from curry_quest.unit import Unit
 from curry_quest.unit_creator import UnitCreator
+from curry_quest.records import Records
+from curry_quest.records_events_handler import RecordsEventsHandler, EmptyRecordsEventsHandler
 
 
 class BattleContext(Jsonable):
@@ -102,6 +103,7 @@ class StateMachineContext(Jsonable):
 
     def __init__(self, game_config: Config):
         self._game_config = game_config
+        self._records_events_handler: RecordsEventsHandler = EmptyRecordsEventsHandler()
         self._is_tutorial_done = False
         self._floor = self.MIN_FLOOR
         self._familiar = None
@@ -141,7 +143,7 @@ class StateMachineContext(Jsonable):
         self._floor = json_reader_helper.read_int_in_range(
             'floor',
             min_value=self.MIN_FLOOR,
-            max_value=self.game_config.highest_floor)
+            max_value=self.game_config.highest_floor + 1)
         self._inventory.from_json_object(json_object['inventory'])
         if 'familiar' in json_object:
             self._familiar = self.create_familiar_from_json_object(json_object['familiar'])
@@ -155,6 +157,20 @@ class StateMachineContext(Jsonable):
         self._responses = json_reader_helper.read_list('responses')
         self._total_turns_counter = json_reader_helper.read_int_with_min('total_turns_counter', min_value=0)
         self._floor_turns_counter = json_reader_helper.read_int_with_min('floor_turns_counter', min_value=0)
+
+    @property
+    def records_events_handler(self):
+        return self._records_events_handler
+
+    @records_events_handler.setter
+    def records_events_handler(self, new_records_events_handler):
+        self._records_events_handler = new_records_events_handler
+
+    @property
+    def records(self):
+        result = Records()
+        result.turns_counter = self.total_turns_counter
+        return result
 
     def create_familiar_from_json_object(self, unit_json_object):
         return self._create_unit_from_json_object(unit_json_object, self.game_config.monsters_traits)
@@ -188,6 +204,13 @@ class StateMachineContext(Jsonable):
         self._is_tutorial_done = True
 
     @property
+    def is_tower_clear_handled(self) -> bool:
+        return self._is_tower_clear_handled
+
+    def set_tower_clear_handled(self):
+        self._is_tower_clear_handled = True
+
+    @property
     def floor(self):
         return self._floor
 
@@ -195,6 +218,9 @@ class StateMachineContext(Jsonable):
     def floor(self, value):
         self._floor = value
         self._floor_turns_counter = 0
+
+    def is_at_the_top_of_tower(self) -> bool:
+        return self._floor > self.game_config.highest_floor
 
     @property
     def familiar(self) -> Unit:

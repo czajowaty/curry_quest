@@ -4,7 +4,7 @@ from curry_quest.floor_descriptor import FloorDescriptor
 from curry_quest.genus import Genus
 from curry_quest.items import Pita, HolyScroll, CureAllHerb, Oleem, MedicinalHerb, FireBall
 from curry_quest.spell import Spells
-from curry_quest.state_machine import StateMachine, StateStart, StateGameOver
+from curry_quest.state_machine import StateMachine, StateStart, StateRestartByUser, StateGameOver
 from curry_quest.state_machine_context import StateMachineContext, BattleContext
 from curry_quest.statuses import Statuses
 from curry_quest.talents import Talents
@@ -25,6 +25,7 @@ from curry_quest.state_character import StateCharacterEvent, StateItemTrade, Sta
     StateEvolveFamiliar
 from curry_quest.state_familiar import StateFamiliarEvent, StateMetFamiliarIgnore, StateFamiliarFusion, \
     StateFamiliarReplacement
+import json
 
 
 class SaveLoadStateTest(unittest.TestCase):
@@ -44,7 +45,7 @@ class SaveLoadStateTest(unittest.TestCase):
         self._sut = self._create_state_machine()
 
     def _create_state_machine(self):
-        return StateMachine(self._game_config, self._player_id)
+        return StateMachine(self._game_config, self._player_id, 'PLAYER')
 
     @property
     def _context(self) -> StateMachineContext:
@@ -56,9 +57,15 @@ class SaveLoadStateTest(unittest.TestCase):
 
     def _test_save_load(self):
         json_object = self._sut.to_json_object()
+        json_object = json.loads(json.dumps(json_object))
         loaded_state_machine = self._create_state_machine()
         loaded_state_machine.from_json_object(json_object)
         return loaded_state_machine
+
+    def test_player_name_is_handled_correctly(self):
+        self._sut.player_name = 'Player name'
+        loaded_state_machine = self._test_save_load()
+        self.assertEqual(loaded_state_machine.player_name, 'Player name')
 
     def test_responses_are_handled_correctly(self):
         self._sut._last_responses.append('Response 1')
@@ -75,6 +82,11 @@ class SaveLoadStateTest(unittest.TestCase):
         self._sut._context.set_tutorial_done()
         context = self._test_save_load_state_machine_context()
         self.assertTrue(context.is_tutorial_done)
+
+    def test_is_tower_clear_handled_is_handled_correctly(self):
+        self._sut._context.set_tower_clear_handled()
+        context = self._test_save_load_state_machine_context()
+        self.assertTrue(context.is_tower_clear_handled)
 
     def test_floor_is_handled_correctly(self):
         self._sut._context.floor = 7
@@ -312,6 +324,9 @@ class SaveLoadStateTest(unittest.TestCase):
     def test_state_start_is_handled_correctly(self):
         self._test_save_load_bare_state(StateStart)
 
+    def test_state_restart_by_user_is_handled_correctly(self):
+        self._test_save_load_bare_state(StateRestartByUser)
+
     def test_state_initialize_is_handled_correctly(self):
         state = StateInitialize.create(self._context, ('Monster', 4))
         loaded_state = self._test_save_load_state(state)
@@ -361,7 +376,7 @@ class SaveLoadStateTest(unittest.TestCase):
     def test_state_battle_prepare_phase_is_handled_correctly(self):
         state = StateBattlePreparePhase.create(self._context, (True,))
         loaded_state = self._test_save_load_state(state)
-        self.assertTrue(loaded_state._prepare_phase_turn_used)
+        self.assertIs(loaded_state._prepare_phase_turn_used, True)
 
     def test_state_battle_approach_is_handled_correctly(self):
         self._test_save_load_bare_state(StateBattleApproach)

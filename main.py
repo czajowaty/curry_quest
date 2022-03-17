@@ -2,7 +2,8 @@ import argparse
 from ad_rando.seed_generator import RandoCommandHandler
 import asyncio
 from bot_config import BotConfig
-from curry_quest import Controller as CurryQuestController, CurryQuest, Config as CurryQuestConfig, StateFilesHandler
+from curry_quest import Controller as CurryQuestController, CurryQuest, Config as CurryQuestConfig, StateFilesHandler, \
+    HallsOfFameHandler
 import discord
 import discord_helpers
 import logging.handlers
@@ -11,10 +12,15 @@ import sys
 
 
 class CurryQuestDiscordClient(discord.Client):
-    def __init__(self, bot_config: BotConfig, curry_quest_config: CurryQuestConfig, state_files_directory):
+    def __init__(
+            self,
+            bot_config: BotConfig,
+            curry_quest_config: CurryQuestConfig,
+            hall_of_fame_handler,
+            state_files_handler):
         super().__init__()
         self._bot_config = bot_config
-        curry_quest_controller = CurryQuestController(curry_quest_config, StateFilesHandler(state_files_directory))
+        curry_quest_controller = CurryQuestController(curry_quest_config, hall_of_fame_handler, state_files_handler)
         self._curry_quest_client = CurryQuest(curry_quest_controller, bot_config)
 
     async def on_ready(self):
@@ -82,8 +88,8 @@ class CurryQuestOfflineClient:
     class InvalidCommand(Exception):
         pass
 
-    def __init__(self, curry_quest_config: CurryQuestConfig, state_files_directory):
-        self._controller = CurryQuestController(curry_quest_config, StateFilesHandler(state_files_directory))
+    def __init__(self, curry_quest_config: CurryQuestConfig, halls_of_fame_handler, state_files_handler):
+        self._controller = CurryQuestController(curry_quest_config, halls_of_fame_handler, state_files_handler)
         self._controller.set_response_event_handler(lambda msg: print(f"Response - {msg}"))
 
     def run(self):
@@ -92,15 +98,18 @@ class CurryQuestOfflineClient:
     async def _main_loop(self):
         self._controller.start_timers()
         while True:
-            command, args = await asyncio.to_thread(self._get_command)
+            is_by_admin, (command, args) = await asyncio.to_thread(self._get_command)
             if command == self.EXIT_COMMAND:
                 return
             if command == self.JOIN_COMMAND:
-                self._controller.add_player(self.PLAYER_ID)
+                self._controller.add_player(self.PLAYER_ID, 'Test player')
             elif command == self.PART_COMMAND:
                 self._controller.remove_player(self.PLAYER_ID)
             else:
-                self._controller.handle_admin_action(self.PLAYER_ID, command, args)
+                if is_by_admin:
+                    self._controller.handle_admin_action(self.PLAYER_ID, command, args)
+                else:
+                    self._controller.handle_user_action(self.PLAYER_ID, command, args)
 
     def _get_command(self):
         while True:
@@ -115,9 +124,16 @@ class CurryQuestOfflineClient:
         if len(splitted) == 0:
             raise self.InvalidCommand('Cannot be empty.')
         if splitted[0] in self.SPECIAL_COMMANDS:
-            return self._build_command(command=splitted[0])
+            return True, self._build_command(command=splitted[0])
         command, args = splitted[0], splitted[1:]
-        return self._build_command(command, args)
+        if command == 'USER':
+            if len(args) == 0:
+                raise self.InvalidCommand('Cannot be empty.')
+            is_by_admin = False
+            command, args = args[0], args[1:]
+        else:
+            is_by_admin = True
+        return is_by_admin, self._build_command(command, args)
 
     def _build_command(self, command: str='', args: list[str]=[]):
         return command, args
@@ -131,15 +147,16 @@ def parse_args():
     parser.add_argument('token')
     parser.add_argument('bot_config', type=argparse.FileType('r'))
     parser.add_argument('curry_quest_config', type=argparse.FileType('r'))
+    parser.add_argument('halls_of_fame_file', type=str)
     parser.add_argument('-d', '--state_files_directory', default='.')
     parser.add_argument('--offline', action='store_true')
     return parser.parse_args()
 
 
-def configure_logger():
+def configure_logger(stream_handler_logging_level):
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
-    formatter = logging.Formatter('%(asctime)s - %(message)s')
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     file_handler = logging.handlers.RotatingFileHandler(
         'curry_quest.log',
         maxBytes=megabytes_to_bytes(100),
@@ -147,7 +164,7 @@ def configure_logger():
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
     stream_handler = logging.StreamHandler()
-    stream_handler.setLevel(logging.INFO)
+    stream_handler.setLevel(stream_handler_logging_level)
     stream_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
     root_logger.addHandler(stream_handler)
@@ -159,13 +176,16 @@ def megabytes_to_bytes(mb):
 
 def main():
     args = parse_args()
-    configure_logger()
+    configure_logger(logging.DEBUG if args.offline else logging.INFO)
     bot_config = BotConfig.Parser(args.bot_config).parse()
     curry_quest_config = CurryQuestConfig.Parser(args.curry_quest_config).parse()
+    halls_of_fame_handler = HallsOfFameHandler.from_file(args.halls_of_fame_file)
+    state_files_handler = StateFilesHandler(args.state_files_directory)
     if args.offline:
-        CurryQuestOfflineClient(curry_quest_config, args.state_files_directory).run()
+        CurryQuestOfflineClient(curry_quest_config, halls_of_fame_handler, state_files_handler).run()
     else:
-        CurryQuestDiscordClient(bot_config, curry_quest_config, args.state_files_directory).run(args.token)
+        client = CurryQuestDiscordClient(bot_config, curry_quest_config, halls_of_fame_handler, state_files_handler)
+        client.run(args.token)
 
 
 if __name__ == '__main__':

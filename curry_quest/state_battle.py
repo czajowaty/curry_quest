@@ -102,7 +102,7 @@ class StateStartBattle(StateBattleBase):
         self._context.add_response(f"{enemy.to_string()}.")
         self._context.start_battle(self._enemy)
         self._battle_context.start_prepare_phase(counter=3)
-        self._context.generate_action(commands.BATTLE_PREPARE_PHASE, (True,))
+        self._context.generate_action(commands.BATTLE_PREPARE_PHASE, True)
 
     @classmethod
     def _parse_args(cls, context, args):

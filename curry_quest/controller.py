@@ -1,6 +1,9 @@
 import asyncio
 from curry_quest import commands
 from curry_quest.config import Config
+from curry_quest.hall_of_fame import HallsOfFameHandler, SmallestTurnsNumberRecord
+from curry_quest.records import Records
+from curry_quest.records_events_handler import RecordsEventsHandler
 from curry_quest.services import Services
 from curry_quest.state_machine import StateMachine, StateMachineContext
 from curry_quest.state_machine_action import StateMachineAction
@@ -21,14 +24,43 @@ class Controller:
     class NoPlayerForEvent(Exception):
         pass
 
-    def __init__(self, game_config: Config, states_files_handler: StateFilesHandler, services: Services=None):
+    class PlayerRecordsEventsHandler(RecordsEventsHandler):
+        def __init__(self, player_state_machine: StateMachine, halls_of_fame_handler: HallsOfFameHandler):
+            self._player_state_machine = player_state_machine
+            self._halls_of_fame_handler = halls_of_fame_handler
+
+        def handle_tower_clear(self, records: Records):
+            self._add_to_halls_of_fame(
+                HallsOfFameHandler.TOWER_1_CLEAR,
+                SmallestTurnsNumberRecord(records.turns_counter))
+
+        def _add_to_halls_of_fame(self, hall_of_fame_name, record):
+            self._halls_of_fame_handler.add(
+                self._player_state_machine.player_id,
+                self._player_state_machine.player_name,
+                hall_of_fame_name,
+                record)
+
+    def __init__(
+            self,
+            game_config: Config,
+            halls_of_fame_handler: HallsOfFameHandler,
+            states_files_handler: StateFilesHandler,
+            services: Services=None):
         self._game_config = game_config
+        self._halls_of_fame_handler = halls_of_fame_handler
         self._states_files_handler = states_files_handler
         self._services = services or Services()
         self._rng = self._services.rng()
         self._event_timer: asyncio.Task = None
         self.set_response_event_handler(lambda _: None)
-        self._player_state_machines = self._states_files_handler.load(self._game_config)
+        self._player_state_machines: dict[int, StateMachine] = self._states_files_handler.load(self._game_config)
+        for player_state_machine in self._player_state_machines.values():
+            self._set_records_events_handler(player_state_machine)
+
+    def _set_records_events_handler(self, player_state_machine: StateMachine):
+        player_state_machine.set_records_events_handler(
+            self.PlayerRecordsEventsHandler(player_state_machine, self._halls_of_fame_handler))
 
     @property
     def _event_interval(self) -> Config.Timers:
@@ -56,8 +88,8 @@ class Controller:
         if len(responses_group) > 0:
             yield responses_group_to_string(responses_group)
 
-    def handle_user_action(self, player_id: int, command: str, args: tuple):
-        self._handle_action(player_id, self._user_action(command, args))
+    def handle_user_action(self, player_id: int, player_name: str, command: str, args: tuple):
+        self._handle_action(player_id, self._user_action(command, args), player_name)
 
     def _user_action(self, command: str, args: tuple=()) -> StateMachineAction:
         return StateMachineAction(command, args)
@@ -71,16 +103,28 @@ class Controller:
     def _admin_action(self, command: str, args: tuple=()) -> StateMachineAction:
         return StateMachineAction(command, args, is_given_by_admin=True)
 
-    def _handle_action(self, player_id: int, action: StateMachineAction):
+    def _handle_action(self, player_id: int, action: StateMachineAction, player_name: str=None):
+        if self._handle_generic_command(player_id, action):
+            return
         if not self._does_player_exist(player_id):
             return
         player_state_machine = self._player_state_machine(player_id)
+        if player_name is not None:
+            player_state_machine.player_name = player_name
         responses = player_state_machine.on_action(action)
         if len(responses) > 0:
             self._send_response(player_id, responses)
-        if player_state_machine.is_finished():
-            self._restart_game(player_id)
         self._save_player_state(player_id)
+
+    def _handle_generic_command(self, player_id: int, action: StateMachineAction):
+        command = action.command
+        if command == commands.HALL_OF_FAME:
+            self._handle_hall_of_fame_command(player_id, action.args)
+            return True
+        return False
+
+    def _handle_hall_of_fame_command(self, player_id, args):
+        self._response_event_handler(self._halls_of_fame_handler.to_string(HallsOfFameHandler.TOWER_1_CLEAR))
 
     def _save_player_state(self, player_id: int):
         self._states_files_handler.save(self._player_state_machine(player_id))
@@ -93,14 +137,13 @@ class Controller:
     def _does_player_exist(self, player_id: int) -> bool:
         return player_id in self._player_state_machines
 
-    def _restart_game(self, player_id: int):
-        self._handle_action(player_id, self._admin_action(commands.RESTART))
-
-    def add_player(self, player_id: int):
+    def add_player(self, player_id: int, player_name: str):
         if self._does_player_exist(player_id):
             self._send_response(player_id, ["You already joined the Curry Quest."])
             return
-        self._player_state_machines[player_id] = StateMachine(self._game_config, player_id)
+        state_machine = StateMachine(self._game_config, player_id, player_name)
+        self._set_records_events_handler(state_machine)
+        self._player_state_machines[player_id] = state_machine
         self._handle_action(player_id, self._admin_action(commands.STARTED))
 
     def _is_game_started(self, player_id: int) -> bool:

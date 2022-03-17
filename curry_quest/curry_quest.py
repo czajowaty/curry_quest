@@ -35,7 +35,7 @@ class CurryQuest:
         if self._is_admin_message(message):
             self._process_admin_message(player_id, command, args)
         else:
-            self._process_user_message(player_id, command, args)
+            self._process_user_message(player_id, message.author.display_name, command, args)
 
     def _parse_message(self, message: Message):
         splitted_message = message.content.split()
@@ -78,13 +78,13 @@ class CurryQuest:
     def _is_admin(self, player_id):
         return player_id in self._bot_config.admins
 
-    def _process_user_message(self, player_id, command, args):
+    def _process_user_message(self, player_id, player_name, command, args):
         if command == 'join':
-            self._controller.add_player(player_id)
+            self._controller.add_player(player_id, player_name)
         elif command == 'leave':
             self._controller.remove_player(player_id)
         else:
-            self._controller.handle_user_action(player_id, command, args)
+            self._controller.handle_user_action(player_id, player_name, command, args)
 
     def _player_id(self, user: User) -> int:
         return user.id

@@ -61,7 +61,7 @@ class StateFilesLoader:
             with open(state_file_path, mode='r') as state_file:
                 state_json_object = json.load(state_file)
                 player_id = StateMachine.player_id_from_json_object(state_json_object)
-                state_machine = StateMachine(self._game_config, player_id)
+                state_machine = StateMachine(self._game_config, player_id, player_name='')
                 state_machine.from_json_object(state_json_object)
                 self._state_machines[player_id] = state_machine
                 logger.info(f"Loaded '{player_id}'s' state.")

@@ -17,6 +17,8 @@ from curry_quest.unit import Unit
 class StateBattleTestBase(unittest.TestCase):
     def setUp(self):
         self._game_config = Config()
+        for level in range(100):
+            self._game_config.levels.add_level(level * 10)
         self._context = create_autospec(spec=StateMachineContext)
         self._rng = Mock()
         type(self._context).rng = PropertyMock(return_value=self._rng)
@@ -147,7 +149,7 @@ class StateStartBattleTest(StateBattleTestBase):
 
     def test_on_enter_proceeds_to_BattlePreparePhase_state(self):
         self._test_on_enter()
-        self._assert_action(commands.BATTLE_PREPARE_PHASE, (True,))
+        self._assert_action(commands.BATTLE_PREPARE_PHASE, True)
 
 
 class StateBattlePreparePhaseTest(StateBattleTestBase):
@@ -891,7 +893,7 @@ class StateBattleUseSpellTest(StateBattleTestBase):
         self._spell_traits.name = 'FamiliarSpell'
         self._spell_cast_handler.cast.return_value = 'spell casted.'
         self._test_spell_cast()
-        self._assert_responses('You cast FamiliarSpell. spell casted.')
+        self._assert_responses('You cast FamiliarSpell on Monster. spell casted.')
 
     def test_mp_usage(self):
         self._spell_traits.mp_cost = 6
@@ -1203,7 +1205,7 @@ class StateBattleEnemyTurnTest(StateBattleTestBase):
         self._enemy.name = 'monster'
         self._familiar.hp = 30
         self._test_spell_cast(spell_name='MonsterSpell', cast_response='Casted a spell.')
-        self._assert_responses('Monster casts MonsterSpell. Casted a spell.')
+        self._assert_responses('Monster casts MonsterSpell on you. Casted a spell.')
 
     def test_mp_usage(self):
         self._enemy.mp = 60

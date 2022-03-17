@@ -14,6 +14,7 @@ class MessageBuilder:
         def __init__(self):
             self.author = Dummy()
             self.author.id = 0
+            self.author.display_name = ''
             self.content = ''
             self.channel = Dummy()
             self.channel.id = 0
@@ -21,8 +22,9 @@ class MessageBuilder:
     def __init__(self):
         self._message = self.DummyMessage()
 
-    def set_author(self, author):
-        self._message.author.id = author
+    def set_author(self, author_id, author_name=''):
+        self._message.author.id = author_id
+        self._message.author.display_name = author_name
         return self
 
     def set_content(self, content):
@@ -54,8 +56,8 @@ class CurryQuestTest(unittest.TestCase):
     def _start_curry_quest(self, curry_quest: CurryQuest, message_sender=None, admin_message_sender=None):
         curry_quest.start(message_sender or Mock(), admin_message_sender or Mock())
 
-    def _message(self, author='', content='', channel_id=0):
-        return MessageBuilder().set_author(author).set_content(content).set_channel(channel_id).build()
+    def _message(self, author_id=0, author_name='', content='', channel_id=0):
+        return MessageBuilder().set_author(author_id, author_name).set_content(content).set_channel(channel_id).build()
 
     def test_start_passes_send_message_function_to_controller(self):
         controller = self._create_controller()
@@ -94,35 +96,37 @@ class CurryQuestTest(unittest.TestCase):
     def test_when_join_command_is_given_then_add_player_is_called(self):
         controller = self._create_controller()
         curry_quest = self._create_curry_quest(controller=controller, config=self._config(channel_id=8))
-        curry_quest.process_message(self._message(author=3, content='!join', channel_id=8))
-        controller.add_player.assert_called_once_with(3)
+        curry_quest.process_message(self._message(author_id=3, author_name='player', content='!join', channel_id=8))
+        controller.add_player.assert_called_once_with(3, 'player')
 
     def test_when_leave_command_is_given_then_remove_player_is_called(self):
         controller = self._create_controller()
         curry_quest = self._create_curry_quest(controller=controller, config=self._config(channel_id=8))
-        curry_quest.process_message(self._message(author=3, content='!leave', channel_id=8))
+        curry_quest.process_message(self._message(author_id=3, content='!leave', channel_id=8))
         controller.remove_player.assert_called_once_with(3)
 
     def test_when_other_command_is_given_then_handle_user_action_is_called(self):
         controller = self._create_controller()
         curry_quest = self._create_curry_quest(controller=controller, config=self._config(channel_id=8))
-        curry_quest.process_message(self._message(author=3, content='!use_item Medicinal Herb', channel_id=8))
-        controller.handle_user_action.assert_called_once_with(3, 'use_item', ['Medicinal', 'Herb'])
+        curry_quest.process_message(
+            self._message(author_id=3, author_name='player', content='!use_item Medicinal Herb', channel_id=8))
+        controller.handle_user_action.assert_called_once_with(3, 'player', 'use_item', ['Medicinal', 'Herb'])
 
     def test_when_admin_gives_command_in_non_admin_channel_then_it_is_handled_as_user_action(self):
         controller = self._create_controller()
         curry_quest = self._create_curry_quest(
             controller=controller,
             config=self._config(channel_id=5, admin_channel_id=9, admins=[3]))
-        curry_quest.process_message(self._message(author=3, content='!use_item Medicinal Herb', channel_id=8))
-        controller.handle_user_action.assert_called_once_with(3, 'use_item', ['Medicinal', 'Herb'])
+        curry_quest.process_message(
+            self._message(author_id=3, author_name='player', content='!use_item Medicinal Herb', channel_id=8))
+        controller.handle_user_action.assert_called_once_with(3, 'player', 'use_item', ['Medicinal', 'Herb'])
 
     def test_when_admin_gives_command_in_admin_channel_then_it_is_handled_as_admin_action(self):
         controller = self._create_controller()
         curry_quest = self._create_curry_quest(
             controller=controller,
             config=self._config(channel_id=5, admin_channel_id=9, admins=[3]))
-        curry_quest.process_message(self._message(author=3, content='!use_item <@!5> Medicinal Herb', channel_id=9))
+        curry_quest.process_message(self._message(author_id=3, content='!use_item <@!5> Medicinal Herb', channel_id=9))
         controller.handle_admin_action.assert_called_once_with(5, 'use_item', ['Medicinal', 'Herb'])
 
     def test_when_admin_command_does_not_have_target_player_id_then_it_is_not_handled(self):
@@ -132,7 +136,7 @@ class CurryQuestTest(unittest.TestCase):
             config=self._config(channel_id=5, admin_channel_id=9, admins=[3]))
         send_message = Mock()
         self._start_curry_quest(curry_quest, admin_message_sender=send_message)
-        curry_quest.process_message(self._message(author=3, content='!use_item Medicinal Herb', channel_id=9))
+        curry_quest.process_message(self._message(author_id=3, content='!use_item Medicinal Herb', channel_id=9))
         send_message.assert_called_once_with('<@!3>: Command is missing target player id.')
 
     def test_when_admin_command_is_handled_then_proper_message_is_sent_to_admin_channel(self):
@@ -143,7 +147,7 @@ class CurryQuestTest(unittest.TestCase):
             config=self._config(channel_id=5, admin_channel_id=9, admins=[3]))
         send_message = Mock()
         self._start_curry_quest(curry_quest, admin_message_sender=send_message)
-        curry_quest.process_message(self._message(author=3, content='!use_item <@!6> Medicinal Herb', channel_id=9))
+        curry_quest.process_message(self._message(author_id=3, content='!use_item <@!6> Medicinal Herb', channel_id=9))
         send_message.assert_called_once_with('<@!3>: Admin command handled.')
 
     def test_when_admin_command_is_not_handled_then_proper_message_is_sent_to_admin_channel(self):
@@ -154,7 +158,7 @@ class CurryQuestTest(unittest.TestCase):
             config=self._config(channel_id=5, admin_channel_id=9, admins=[3]))
         send_message = Mock()
         self._start_curry_quest(curry_quest, admin_message_sender=send_message)
-        curry_quest.process_message(self._message(author=3, content='!use_item <@!6> Medicinal Herb', channel_id=9))
+        curry_quest.process_message(self._message(author_id=3, content='!use_item <@!6> Medicinal Herb', channel_id=9))
         send_message.assert_called_once_with('<@!3>: <@!6> did not join the quest.')
 
 

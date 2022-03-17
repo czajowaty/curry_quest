@@ -24,9 +24,11 @@ class StateElevatorOmitted(StateBase):
 class StateNextFloor(StateBase):
     def on_enter(self):
         floor = self._context.floor + 1
-        if self._context.floor < self.game_config.highest_floor:
+        if not self._context.is_at_the_top_of_tower():
             self._context.add_response(f"You entered {floor}F.")
             self._context.generate_action(commands.EVENT_FINISHED)
         else:
             self._context.add_response(f"You have conquered the Tower! Congratulations!")
+            self._context.add_response(f"Your valiant efforts are going to be remembered in the Halls of Fame!")
+            self._context.records_events_handler.handle_tower_clear(self._context.records)
             self._context.generate_action(commands.FINISH_GAME)

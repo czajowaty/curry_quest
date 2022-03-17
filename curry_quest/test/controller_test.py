@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, PropertyMock, patch
 from curry_quest import commands
 from curry_quest.config import Config
 from curry_quest.controller import Controller
@@ -11,6 +11,7 @@ class ControllerTest(unittest.TestCase):
     def setUp(self):
         self._states_files_handler = Mock()
         self._states_files_handler.load = Mock(return_value={})
+        self._hall_of_fame_handler = Mock()
         self._services = Mock()
         self._rng = Mock()
         self._services.rng = Mock(return_value=self._rng)
@@ -21,7 +22,11 @@ class ControllerTest(unittest.TestCase):
         self._send_message = Mock()
 
     def _create_controller(self, game_config: Config=None):
-        controller = Controller(game_config or self._config(), self._states_files_handler, self._services)
+        controller = Controller(
+            game_config or self._config(),
+            self._hall_of_fame_handler,
+            self._states_files_handler,
+            self._services)
         controller.set_response_event_handler(self._send_message)
         return controller
 
@@ -41,7 +46,7 @@ class ControllerTest(unittest.TestCase):
             controller = self._create_controller()
             state_machine_mock = StateMachineMock.return_value
             state_machine_mock.is_finished = Mock(return_value=False)
-            controller.add_player(4)
+            controller.add_player(4, 'player')
             state_machine_mock.on_action.assert_called_once()
             action = state_machine_mock.on_action.call_args.args[0]
             self.assertEqual(action.command, 'started')
@@ -52,7 +57,7 @@ class ControllerTest(unittest.TestCase):
         with patch('curry_quest.controller.StateMachine') as StateMachineMock:
             created_state_machine_mock = StateMachineMock.return_value
             controller = self._create_controller()
-            controller.add_player(4)
+            controller.add_player(4, 'player')
             created_state_machine_mock.on_action.assert_not_called()
             self._send_message.assert_called_with('<@!4>: You already joined the Curry Quest.')
 
@@ -93,12 +98,14 @@ class ControllerTest(unittest.TestCase):
 
     def _state_machine_mock(
             self,
+            player_name_mock=None,
             has_event_selection_penalty=False,
             is_finished=False,
             is_started=True,
             is_waiting_for_event=True,
             event_selection_penalty_end_dt=None):
         state_machine_mock = Mock(spec=StateMachine)
+        type(state_machine_mock).player_name = player_name_mock or PropertyMock(return_value='')
         state_machine_mock.has_event_selection_penalty = Mock(return_value=has_event_selection_penalty)
         state_machine_mock.on_action = Mock(return_value=[])
         state_machine_mock.is_finished = Mock(return_value=is_finished)
@@ -226,14 +233,22 @@ class ControllerTest(unittest.TestCase):
         players = {4: self._state_machine_mock()}
         self._states_files_handler.load = Mock(return_value=players)
         controller = self._create_controller()
-        controller.handle_user_action(4, 'test_command', ('arg1', 'arg2'))
+        controller.handle_user_action(4, 'player', 'test_command', ('arg1', 'arg2'))
         self._assert_user_on_action_call(players[4], 'test_command', 'arg1', 'arg2')
+
+    def test_when_handle_user_action_is_called_for_existing_player_then_player_name_is_updated(self):
+        player_name_mock = PropertyMock(return_value='old player name')
+        players = {4: self._state_machine_mock(player_name_mock=player_name_mock)}
+        self._states_files_handler.load = Mock(return_value=players)
+        controller = self._create_controller()
+        controller.handle_user_action(4, 'new player name', 'test_command', ())
+        player_name_mock.assert_called_with('new player name')
 
     def test_when_handle_user_action_is_called_for_non_existing_player_then_it_is_not_handled(self):
         players = {4: self._state_machine_mock()}
         self._states_files_handler.load = Mock(return_value=players)
         controller = self._create_controller()
-        controller.handle_user_action(5, 'test_command', ('arg1', 'arg2'))
+        controller.handle_user_action(5, 'player', 'test_command', ('arg1', 'arg2'))
         players[4].on_action.assert_not_called()
 
     def test_when_handle_admin_action_is_called_for_existing_player_then_it_is_handled(self):

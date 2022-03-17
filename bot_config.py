@@ -41,4 +41,3 @@ class BotConfig:
         def _validate_config(self):
             if self._config.channel_id == 0:
                 raise self.InvalidConfig(f'Channel ID must be different than 0.')
-

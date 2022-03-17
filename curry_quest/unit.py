@@ -83,7 +83,14 @@ class Unit(Jsonable):
         self.luck = json_reader_helper.read_int_with_min('luck', min_value=self.MIN_LUCK)
         self.clear_statuses()
         self.set_status(json_reader_helper.read_enum('statuses', Statuses))
-        for status_id, duration in json_reader_helper.read_dict('timed_statuses').items():
+        for status_id_string, duration in json_reader_helper.read_dict('timed_statuses').items():
+            try:
+                status_id = int(status_id_string)
+            except ValueError:
+                self._raise_invalid_json(
+                    json_object,
+                    f'"{status_id}"="{duration}". '
+                    f'Status ID "{status_id}" is not valid integer.')
             if not isinstance(duration, int):
                 self._raise_invalid_json(
                     json_object,

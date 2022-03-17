@@ -16,8 +16,8 @@ from curry_quest.state_event import StateWaitForEvent, StateGenerateEvent
 from curry_quest.state_familiar import StateFamiliarEvent, StateMetFamiliarIgnore, StateFamiliarFusion, \
     StateFamiliarReplacement
 from curry_quest.state_initialize import StateInitialize, StateEnterTower
-from curry_quest.state_item import StateItemEvent, StateItemPickUp, StateItemPickUpFullInventory, StateItemPickUpIgnored, \
-    StateItemEventFinished
+from curry_quest.state_item import StateItemEvent, StateItemPickUp, StateItemPickUpFullInventory, \
+    StateItemPickUpIgnored, StateItemEventFinished
 from curry_quest.state_machine_action import StateMachineAction
 from curry_quest.state_machine_context import StateMachineContext
 from curry_quest.state_trap import StateTrapEvent
@@ -54,6 +54,11 @@ class StateStart(StateBase):
     pass
 
 
+class StateRestartByUser(StateBase):
+    def on_enter(self):
+        self._context.generate_action(commands.STARTED)
+
+
 class StateGameOver(StateBase):
     pass
 
@@ -62,6 +67,7 @@ class StateMachine(Jsonable):
     VERSION = 2
     TRANSITIONS = {
         StateStart: {commands.STARTED: Transition.by_admin(StateInitialize)},
+        StateRestartByUser: {commands.STARTED: Transition.by_admin(StateInitialize)},
         StateInitialize: {commands.ENTER_TOWER: Transition.by_user(StateEnterTower)},
         StateEnterTower: {commands.ENTERED_TOWER: Transition.by_admin(StateGenerateEvent)},
         StateWaitForEvent: {
@@ -171,12 +177,13 @@ class StateMachine(Jsonable):
         StateMetFamiliarIgnore: {commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent)},
         StateFamiliarFusion: {commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent)},
         StateFamiliarReplacement: {commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent)},
-        StateGameOver: {commands.RESTART: Transition.by_admin(StateStart)}
+        StateGameOver: {commands.RESTART: Transition.by_user(StateRestartByUser)}
     }
 
-    def __init__(self, game_config: Config, player_id: int):
+    def __init__(self, game_config: Config, player_id: int, player_name: str):
         self._context = StateMachineContext(game_config)
         self._player_id = player_id
+        self._player_name = player_name
         self._last_responses = []
         self._state = StateStart(self._context)
         self._event_selection_penalty_end_dt = None
@@ -194,12 +201,24 @@ class StateMachine(Jsonable):
             commands.GIVE_FAMILIAR_STATUS: (True, self._give_familiar_status),
             commands.GIVE_ENEMY_SPELL: (True, self._give_enemy_spell),
             commands.GIVE_ENEMY_STATUS: (True, self._give_enemy_status),
-            commands.SHOW_TURN_COUNTERS: (True, self._handle_turn_counters_query)
+            commands.SHOW_TURN_COUNTERS: (True, self._handle_turn_counters_query),
+            commands.SET_FLOOR: (True, self._set_floor)
         }
 
     @property
     def player_id(self) -> int:
         return self._player_id
+
+    @property
+    def player_name(self) -> str:
+        return self._player_name
+
+    @player_name.setter
+    def player_name(self, new_name) -> str:
+        self._player_name = new_name
+
+    def set_records_events_handler(self, new_records_events_handler):
+        self._context.records_events_handler = new_records_events_handler
 
     def has_event_selection_penalty(self) -> bool:
         return self._event_selection_penalty_end_dt is not None
@@ -217,7 +236,8 @@ class StateMachine(Jsonable):
     def to_json_object(self):
         return {
                 'version': self.VERSION,
-                'player': self.player_id,
+                'player_id': self.player_id,
+                'player_name': self.player_name,
                 'responses': self._last_responses,
                 'context': self._context.to_json_object(),
                 'state': self._state.to_json_object()
@@ -225,6 +245,7 @@ class StateMachine(Jsonable):
 
     def from_json_object(self, json_object):
         json_reader_helper = JsonReaderHelper(json_object)
+        self._player_name = json_reader_helper.read_non_empty_string('player_name')
         self._last_responses = json_reader_helper.read_value_of_type_with_default('responses', list, default=[])
         self._context.from_json_object(json_reader_helper.read_value_of_type_with_default('context', dict, default={}))
         self._create_state_from_json_object(json_reader_helper.read_dict('state'))
@@ -232,7 +253,7 @@ class StateMachine(Jsonable):
     @classmethod
     def player_id_from_json_object(cls, json_object):
         json_reader_helper = JsonReaderHelper(json_object)
-        return json_reader_helper.read_int_with_min('player', min_value=1)
+        return json_reader_helper.read_int_with_min('player_id', min_value=1)
 
     def _create_state_from_json_object(self, json_object):
         json_reader_helper = JsonReaderHelper(json_object)
@@ -264,6 +285,8 @@ class StateMachine(Jsonable):
         try:
             if not self._handle_generic_action(action):
                 if self._handle_non_generic_action(action):
+                    if self.is_finished():
+                        self._context.add_response(f'Use command "{commands.RESTART}" to play again.')
                     self._last_responses = self._context.peek_responses()
         except InvalidOperation as exc:
             self._context.add_response(str(exc))
@@ -274,7 +297,7 @@ class StateMachine(Jsonable):
             if command == action.command:
                 if not is_admin_command or action.is_given_by_admin:
                     handler(action)
-                return True
+                    return True
         else:
             return False
 
@@ -288,8 +311,9 @@ class StateMachine(Jsonable):
 
     def _restart_state_machine(self, action):
         if action.is_given_by_admin:
-            self._state = StateStart(self._context)
+            self._state = StateInitialize.create(self._context, action.args)
             logger.info(f"Restarted game for {self.player_id}.")
+            self._state.on_enter()
 
     def _available_specific_commands(self, is_admin: bool):
         available_specific_commands = []
@@ -466,11 +490,33 @@ class StateMachine(Jsonable):
             response += f'Floor turns counter: {self._context.floor_turns_counter}.\n'
             response += f'Earthquake: '
             turns_until_eq = self._context.turns_until_earthquake()
-            response += 'done' if turns_until_eq <= 0 else f'in {turns_until_eq} turns'
-            response += f'\nFloor collapse: in {self._context.turns_until_floor_collapse()}'
+            response += 'done' if turns_until_eq <= 0 else f'in {turns_until_eq} turns.'
+            response += f'\nFloor collapse: in {self._context.turns_until_floor_collapse()} turns.'
             self._context.add_response(response)
         else:
             self._handle_generic_action_before_entering_tower()
+
+    def _set_floor(self, action):
+        if not self._has_entered_tower():
+            self._handle_generic_action_before_entering_tower()
+            return
+        floor = self._parse_floor(action)
+        self._context.floor = floor
+        self._context.add_response(f'You were teleported to {floor + 1}F by an unknown power.')
+
+    def _parse_floor(self, action):
+        if len(action.args) < 1:
+            raise InvalidOperation(f"Not enough arguments.")
+        floor_string = action.args[0]
+        try:
+            floor = int(floor_string)
+        except ValueError:
+            raise InvalidOperation(f"'{floor_string}' is not valid floor.")
+        floor -= 1
+        highest_floor = self._context.game_config.highest_floor
+        if floor < 0 or floor > highest_floor:
+            raise InvalidOperation(f'Floor must be in range [1, {highest_floor + 1}].')
+        return floor
 
     def _handle_generic_action_before_entering_tower(self):
         self._context.add_response(f"You did not enter the tower yet.")
