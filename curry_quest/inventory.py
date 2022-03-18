@@ -43,7 +43,7 @@ class Inventory(Jsonable):
         if len(searched_item_name) == 0:
             raise ValueError()
         for index, item in enumerate(self._items):
-            if normalize_item_name(item.name).startswith(searched_item_name):
+            if item.matches_normalized_name(searched_item_name):
                 return index, item
         raise ValueError()
 

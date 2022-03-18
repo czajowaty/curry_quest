@@ -19,7 +19,7 @@ from curry_quest.state_familiar import StateFamiliarEvent, StateMetFamiliarIgnor
     StateFamiliarReplacement
 from curry_quest.state_initialize import StateInitialize, StateEnterTower
 from curry_quest.state_item import StateItemEvent, StateItemPickUp, StateItemPickUpFullInventory, \
-    StateItemPickUpIgnored, StateItemEventFinished
+    StateItemPickUpAfterDrop, StateItemPickUpIgnored, StateItemEventFinished
 from curry_quest.state_machine import StateMachine, StateStart, StateRestartByUser, StateGameOver
 from curry_quest.state_machine_context import StateMachineContext, BattleContext
 from curry_quest.state_trap import StateTrapEvent
@@ -443,12 +443,15 @@ class SaveLoadStateTest(unittest.TestCase):
     def test_state_item_pick_up_is_handled_correctly(self):
         self._test_save_load_bare_state(StateItemPickUp)
 
-    def test_state_item_pick_up_full_inventory_is_handled_correctly(self):
+    def test_state_item_pick_full_inventory_is_handled_correctly(self):
+        self._test_save_load_bare_state(StateItemPickUpFullInventory)
+
+    def test_state_item_pick_up_after_drop_is_handled_correctly(self):
         self._context.inventory.add_item(Pita())
         self._context.inventory.add_item(HolyScroll())
         self._context.inventory.add_item(MedicinalHerb())
         self._context.inventory.add_item(CureAllHerb())
-        state = StateItemPickUpFullInventory.create(self._context, ('Holy ',))
+        state = StateItemPickUpAfterDrop.create(self._context, ('Holy ',))
         loaded_state = self._test_save_load_state(state)
         self.assertEqual(loaded_state._item_index, 1)
 

@@ -51,12 +51,66 @@ class StateItemPickUp(StateBase):
             self._context.add_response(f"You take the {item.name} with you.")
             self._context.generate_action(commands.ITEM_PICKED_UP)
         else:
+            self._context.generate_action(commands.FULL_INVENTORY)
+
+
+class StateItemPickUpFullInventory(StateBase):
+    def on_enter(self):
             items = ', '.join(self.inventory.items)
+            found_item_name = self._context.peek_buffered_item().name
             self._context.add_response(
-                f"Your inventory is full. You need to drop one of your current items first. You have: {items}.")
+                f"Your inventory is full. You need to drop/use one of your current items first. "
+                f"You can also use found {found_item_name} or ignore it. You have: {items}.")
+
+    def is_waiting_for_user_action(self) -> bool:
+        return True
 
 
-class StateItemPickUpFullInventory(StateWithInventoryItem):
+class StateItemUse(StateBase):
+    def __init__(self, context, *item_name_parts):
+        super().__init__(context)
+        self._item_name = normalize_item_name(*item_name_parts)
+
+    def on_enter(self):
+        item_descriptor = self._found_item_descriptor()
+        if item_descriptor is None:
+            item_descriptor = self._inventory_item_descriptor()
+        if item_descriptor is None:
+            self._context.add_response("You do not have such item in your inventory and it is not found item.")
+            self._context.generate_action(commands.CANNOT_USE_ITEM)
+            return
+        item, remove_item, next_command = item_descriptor
+        can_use, reason = item.can_use(self._context)
+        if not can_use:
+            self._context.add_response(f"Cannot use \"{item.name}\". {reason}")
+            self._context.generate_action(commands.CANNOT_USE_ITEM)
+            return
+        item.use(self._context)
+        remove_item()
+        self._context.generate_action(next_command)
+
+    def _found_item_descriptor(self):
+        item = self._context.peek_buffered_item()
+        if item.matches_normalized_name(self._item_name):
+            return item, lambda: self._context.take_buffered_item(), commands.FOUND_ITEM_USED
+        else:
+            return None
+
+    def _inventory_item_descriptor(self):
+        try:
+            index, item = self._context.inventory.find_item(self._item_name)
+            return item, lambda: self._context.inventory.take_item(index), commands.INVENTORY_ITEM_USED
+        except ValueError:
+            return None
+
+    @classmethod
+    def _parse_args(cls, context, args):
+        if len(args) < 1:
+            raise cls.ArgsParseError('You need to specify item.')
+        return args
+
+
+class StateItemPickUpAfterDrop(StateWithInventoryItem):
     def on_enter(self):
         dropped_item = self.inventory.take_item(self._item_index)
         picked_up_item = self._context.take_buffered_item()

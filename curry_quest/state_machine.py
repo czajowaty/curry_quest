@@ -17,8 +17,8 @@ from curry_quest.state_event import StateWaitForEvent, StateGenerateEvent
 from curry_quest.state_familiar import StateFamiliarEvent, StateMetFamiliarIgnore, StateFamiliarFusion, \
     StateFamiliarReplacement
 from curry_quest.state_initialize import StateInitialize, StateEnterTower
-from curry_quest.state_item import StateItemEvent, StateItemPickUp, StateItemPickUpFullInventory, \
-    StateItemPickUpIgnored, StateItemEventFinished
+from curry_quest.state_item import StateItemEvent, StateItemPickUp, StateItemPickUpFullInventory, StateItemUse, \
+    StateItemPickUpAfterDrop, StateItemPickUpIgnored, StateItemEventFinished
 from curry_quest.state_machine_action import StateMachineAction
 from curry_quest.state_machine_context import StateMachineContext
 from curry_quest.state_trap import StateTrapEvent
@@ -130,10 +130,19 @@ class StateMachine(Jsonable):
         },
         StateItemPickUp: {
             commands.ITEM_PICKED_UP: Transition.by_admin(StateItemEventFinished),
-            commands.DROP_ITEM: Transition.by_user(StateItemPickUpFullInventory),
+            commands.FULL_INVENTORY: Transition.by_admin(StateItemPickUpFullInventory)
+        },
+        StateItemPickUpFullInventory: {
+            commands.USE_ITEM: Transition.by_user(StateItemUse),
+            commands.DROP_ITEM: Transition.by_user(StateItemPickUpAfterDrop),
             commands.IGNORE: Transition.by_user(StateItemPickUpIgnored)
         },
-        StateItemPickUpFullInventory: {commands.ITEM_PICKED_UP: Transition.by_admin(StateItemEventFinished)},
+        StateItemUse: {
+            commands.CANNOT_USE_ITEM: Transition.by_admin(StateItemPickUpFullInventory),
+            commands.FOUND_ITEM_USED: Transition.by_admin(StateItemEventFinished),
+            commands.INVENTORY_ITEM_USED: Transition.by_admin(StateItemPickUp)
+        },
+        StateItemPickUpAfterDrop: {commands.ITEM_PICKED_UP: Transition.by_admin(StateItemEventFinished)},
         StateItemPickUpIgnored: {commands.EVENT_FINISHED: Transition.by_admin(StateItemEventFinished)},
         StateItemEventFinished: {commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent)},
         StateTrapEvent: {

@@ -19,6 +19,14 @@ class Item(Jsonable):
     def name(cls) -> str:
         raise NotImplementedError(f'{cls.__name__}.name')
 
+    @classmethod
+    def matches_normalized_name(cls, normalized_item_name):
+        return normalize_item_name(cls.name).startswith(normalized_item_name)
+
+    @classmethod
+    def matches_name(cls, *item_name_parts):
+        return normalize_item_name(cls.name).startswith(normalize_item_name(item_name_parts))
+
     def can_use(self, context) -> (bool, str):
         raise NotImplementedError(f'{self.__class__.__name__}.{self.can_use}')
 
@@ -130,11 +138,11 @@ class FireBall(BattlePhaseOnlyItem):
             f'{enemy.name} has {enemy.hp} HP left.'
 
 
-class WaterBall(Item):
+class WaterCrystal(Item):
     @classmethod
     @property
     def name(cls) -> str:
-        return 'Water Ball'
+        return 'Water Crystal'
 
     def can_use(self, context) -> bool:
         familiar = context.familiar
@@ -162,4 +170,4 @@ class ItemJsonLoader:
 
 
 def all_items():
-    return [Pita(), Oleem(), HolyScroll(), MedicinalHerb(), CureAllHerb(), FireBall(), WaterBall()]
+    return [Pita(), Oleem(), HolyScroll(), MedicinalHerb(), CureAllHerb(), FireBall(), WaterCrystal()]
