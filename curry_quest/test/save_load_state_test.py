@@ -3,28 +3,30 @@ from curry_quest.config import Config
 from curry_quest.floor_descriptor import FloorDescriptor
 from curry_quest.genus import Genus
 from curry_quest.items import Pita, HolyScroll, CureAllHerb, Oleem, MedicinalHerb, FireBall
+from curry_quest.records import Records
 from curry_quest.spell import Spells
+from curry_quest.state_base import StateBase
+from curry_quest.state_battle import StateBattleEvent, StateStartBattle, StateBattlePreparePhase, StateBattleApproach, \
+    StateBattlePhase, StateBattlePlayerTurn, StateEnemyStats, StateBattleSkipTurn, StateBattleAttack, \
+    StateBattleUseSpell, StateBattleUseItem, StateBattleTryToFlee, StateBattleEnemyTurn
+from curry_quest.state_character import StateCharacterEvent, StateItemTrade, StateItemTradeAccepted, \
+    StateItemTradeRejected, StateFamiliarTrade, StateFamiliarTradeAccepted, StateFamiliarTradeRejected, \
+    StateEvolveFamiliar
+from curry_quest.state_elevator import StateElevatorEvent, StateElevatorUsed, StateGoUp, StateElevatorOmitted, \
+    StateNextFloor
+from curry_quest.state_event import StateWaitForEvent, StateGenerateEvent
+from curry_quest.state_familiar import StateFamiliarEvent, StateMetFamiliarIgnore, StateFamiliarFusion, \
+    StateFamiliarReplacement
+from curry_quest.state_initialize import StateInitialize, StateEnterTower
+from curry_quest.state_item import StateItemEvent, StateItemPickUp, StateItemPickUpFullInventory, \
+    StateItemPickUpIgnored, StateItemEventFinished
 from curry_quest.state_machine import StateMachine, StateStart, StateRestartByUser, StateGameOver
 from curry_quest.state_machine_context import StateMachineContext, BattleContext
+from curry_quest.state_trap import StateTrapEvent
 from curry_quest.statuses import Statuses
 from curry_quest.talents import Talents
 from curry_quest.traits import UnitTraits
 from curry_quest.unit import Unit
-from curry_quest.state_base import StateBase
-from curry_quest.state_initialize import StateInitialize, StateEnterTower
-from curry_quest.state_event import StateWaitForEvent, StateGenerateEvent
-from curry_quest.state_battle import StateBattleEvent, StateStartBattle, StateBattlePreparePhase, StateBattleApproach, \
-    StateBattlePhase, StateBattlePlayerTurn, StateEnemyStats, StateBattleSkipTurn, StateBattleAttack, \
-    StateBattleUseSpell, StateBattleUseItem, StateBattleTryToFlee, StateBattleEnemyTurn
-from curry_quest.state_item import StateItemEvent, StateItemPickUp, StateItemPickUpFullInventory, \
-    StateItemPickUpIgnored, StateItemEventFinished
-from curry_quest.state_trap import StateTrapEvent
-from curry_quest.state_elevator import StateElevatorEvent, StateGoUp, StateElevatorOmitted, StateNextFloor
-from curry_quest.state_character import StateCharacterEvent, StateItemTrade, StateItemTradeAccepted, \
-    StateItemTradeRejected, StateFamiliarTrade, StateFamiliarTradeAccepted, StateFamiliarTradeRejected, \
-    StateEvolveFamiliar
-from curry_quest.state_familiar import StateFamiliarEvent, StateMetFamiliarIgnore, StateFamiliarFusion, \
-    StateFamiliarReplacement
 import json
 
 
@@ -78,15 +80,23 @@ class SaveLoadStateTest(unittest.TestCase):
     def _test_save_load_state_machine_context(self) -> StateMachineContext:
         return self._test_save_load()._context
 
+    def _test_save_load_current_climb_records(self) -> Records:
+        return self._test_save_load_state_machine_context().records
+
+    def test_current_climb_turns_counter_is_handled_correctly(self):
+        self._sut._context.records.turns_counter = 3
+        records = self._test_save_load_current_climb_records()
+        self.assertEqual(records.turns_counter, 3)
+
+    def test_current_climb_used_elevators_counter_is_handled_correctly(self):
+        self._sut._context.records.used_elevators_counter = 2
+        records = self._test_save_load_current_climb_records()
+        self.assertEqual(records.used_elevators_counter, 2)
+
     def test_is_tutorial_done_is_handled_correctly(self):
         self._sut._context.set_tutorial_done()
         context = self._test_save_load_state_machine_context()
         self.assertTrue(context.is_tutorial_done)
-
-    def test_is_tower_clear_handled_is_handled_correctly(self):
-        self._sut._context.set_tower_clear_handled()
-        context = self._test_save_load_state_machine_context()
-        self.assertTrue(context.is_tower_clear_handled)
 
     def test_floor_is_handled_correctly(self):
         self._sut._context.floor = 7
@@ -105,15 +115,10 @@ class SaveLoadStateTest(unittest.TestCase):
         context = self._test_save_load_state_machine_context()
         self.assertEqual(context.take_responses(), ['Response 1', 'Response 3'])
 
-    def test_total_turns_counter_is_handled_correctly(self):
-        self._sut._context._total_turns_counter = 4
-        context = self._test_save_load_state_machine_context()
-        self.assertEqual(context.total_turns_counter, 4)
-
     def test_floor_turns_counter_is_handled_correctly(self):
-        self._sut._context._floor_turns_counter = 9
+        self._sut._context._floor_turns_counter = 4
         context = self._test_save_load_state_machine_context()
-        self.assertEqual(context.floor_turns_counter, 9)
+        self.assertEqual(context.floor_turns_counter, 4)
 
     def test_inventory_is_handled_correctly(self):
         inventory = self._sut._context.inventory
@@ -453,6 +458,9 @@ class SaveLoadStateTest(unittest.TestCase):
 
     def test_state_elevator_event_is_handled_correctly(self):
         self._test_save_load_bare_state(StateElevatorEvent)
+
+    def test_state_elevator_used_is_handled_correctly(self):
+        self._test_save_load_bare_state(StateElevatorUsed)
 
     def test_state_go_up_is_handled_correctly(self):
         self._test_save_load_bare_state(StateGoUp)

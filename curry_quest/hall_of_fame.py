@@ -120,18 +120,22 @@ class HallOfFame:
 
 
 class HallsOfFameHandler(Jsonable):
-    TOWER_1_CLEAR = 'Tower clear'
-    TOWER_1_EQ_CLEAR = 'Tower 1 EQ clear'
-    ALL_HALLS_OF_FAME = [
-        (TOWER_1_CLEAR, SmallestTurnsNumberRecord),
-        (TOWER_1_EQ_CLEAR, SmallestTurnsNumberRecord)
-    ]
+    ANY_PERCENT = 'any%'
+    EQ_PERCENT = 'eq%'
+    ALL_HALLS_OF_FAME = {
+        SmallestTurnsNumberRecord: [ANY_PERCENT, EQ_PERCENT]
+    }
 
     def __init__(self, halls_of_fame_changed_handler):
         self._halls_of_fame_changed_handler = halls_of_fame_changed_handler
         self._halls_of_fame: dict[str, HallOfFame] = {}
-        for hall_of_fame_name, record_type in self.ALL_HALLS_OF_FAME:
-            self._halls_of_fame[hall_of_fame_name] = HallOfFame(hall_of_fame_name, record_type)
+        for record_type, halls_of_fame_names in self.ALL_HALLS_OF_FAME.items():
+            for hall_of_fame_name in halls_of_fame_names:
+                self._halls_of_fame[hall_of_fame_name] = HallOfFame(hall_of_fame_name, record_type)
+
+    @property
+    def halls_of_fame_names(self):
+        return list(self._halls_of_fame.keys())
 
     def to_json_object(self):
         return dict((name, hall_of_fame.to_json_object()) for name, hall_of_fame in self._halls_of_fame.items())

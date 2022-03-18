@@ -63,7 +63,7 @@ class StateTrapEvent(StateBase):
     def _parse_args(cls, context, args):
         if len(args) == 0:
             return ()
-        trap = args[0].lower().capitalize()
+        trap = ' '.join(args).lower().capitalize()
         if trap not in cls.TRAPS.keys():
             raise cls.ArgsParseError('Unknown trap')
         return trap,

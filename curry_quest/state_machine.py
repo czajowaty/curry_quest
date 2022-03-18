@@ -11,7 +11,8 @@ from curry_quest.state_battle import StateBattleEvent, StateStartBattle, StateBa
 from curry_quest.state_character import StateCharacterEvent, StateItemTrade, StateItemTradeAccepted, \
     StateItemTradeRejected, StateFamiliarTrade, StateFamiliarTradeAccepted, StateFamiliarTradeRejected, \
     StateEvolveFamiliar
-from curry_quest.state_elevator import StateElevatorEvent, StateGoUp, StateElevatorOmitted, StateNextFloor
+from curry_quest.state_elevator import StateElevatorEvent, StateGoUp, StateElevatorOmitted, StateNextFloor,\
+    StateElevatorUsed
 from curry_quest.state_event import StateWaitForEvent, StateGenerateEvent
 from curry_quest.state_familiar import StateFamiliarEvent, StateMetFamiliarIgnore, StateFamiliarFusion, \
     StateFamiliarReplacement
@@ -140,9 +141,10 @@ class StateMachine(Jsonable):
             commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent)
         },
         StateElevatorEvent: {
-            commands.ACCEPTED: Transition.by_user(StateGoUp),
+            commands.ACCEPTED: Transition.by_user(StateElevatorUsed),
             commands.REJECTED: Transition.by_user(StateElevatorOmitted)
         },
+        StateElevatorUsed: {commands.GO_UP, Transition.by_admin(StateGoUp)},
         StateGoUp: {commands.ENTERED_NEXT_FLOOR: Transition.by_admin(StateNextFloor)},
         StateElevatorOmitted: {commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent)},
         StateNextFloor: {
@@ -194,6 +196,8 @@ class StateMachine(Jsonable):
             commands.SHOW_INVENTORY: (False, self._handle_inventory_query),
             commands.SHOW_FLOOR: (False, self._handle_floor_query),
             commands.SHOW_STATE: (False, self._handle_state_query),
+            commands.RECORDS: (False, self._handle_records_query),
+            commands.HALL_OF_FAME: (False, lambda *args, **kwargs: None),
             commands.GIVE_ITEM: (True, self._give_item),
             commands.RESTORE_HP: (True, self._restore_hp),
             commands.RESTORE_MP: (True, self._restore_mp),
@@ -201,7 +205,7 @@ class StateMachine(Jsonable):
             commands.GIVE_FAMILIAR_STATUS: (True, self._give_familiar_status),
             commands.GIVE_ENEMY_SPELL: (True, self._give_enemy_spell),
             commands.GIVE_ENEMY_STATUS: (True, self._give_enemy_status),
-            commands.SHOW_TURN_COUNTERS: (True, self._handle_turn_counters_query),
+            commands.TURN_COUNTERS: (True, self._handle_turn_counters_query),
             commands.SET_FLOOR: (True, self._set_floor)
         }
 
@@ -360,6 +364,15 @@ class StateMachine(Jsonable):
             for response in self._last_responses:
                 self._context.add_response(response)
 
+    def _handle_records_query(self, action):
+        if not self.is_started():
+            self._handle_generic_action_before_entering_tower()
+        else:
+            self._context.add_response("Records:")
+            records = self._context.records
+            self._context.add_response(f"  Turns in tower: {records.turns_counter}")
+            self._context.add_response(f"  Used elevators: {records.used_elevators_counter}")
+
     def _give_item(self, action):
         if not self._has_entered_tower():
             logger.warning(f"{self.player_id} has not entered the tower yet.")
@@ -486,8 +499,7 @@ class StateMachine(Jsonable):
 
     def _handle_turn_counters_query(self, action):
         if self._has_entered_tower():
-            response = f'Total turns: {self._context.total_turns_counter}. '
-            response += f'Floor turns counter: {self._context.floor_turns_counter}.\n'
+            response = f'Floor turns counter: {self._context.floor_turns_counter}.\n'
             response += f'Earthquake: '
             turns_until_eq = self._context.turns_until_earthquake()
             response += 'done' if turns_until_eq <= 0 else f'in {turns_until_eq} turns.'

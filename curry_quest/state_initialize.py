@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 
 class StateInitialize(StateWithMonster):
     def on_enter(self):
+        self._context.reset_current_climb_records()
         self._context.floor = 0
         self._context.familiar = self._generate_monster_or_non_evolved()
         self._set_start_inventory()

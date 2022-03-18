@@ -104,6 +104,7 @@ class StateMachineContext(Jsonable):
     def __init__(self, game_config: Config):
         self._game_config = game_config
         self._records_events_handler: RecordsEventsHandler = EmptyRecordsEventsHandler()
+        self._current_climb_records = Records()
         self._is_tutorial_done = False
         self._floor = self.MIN_FLOOR
         self._familiar = None
@@ -114,17 +115,16 @@ class StateMachineContext(Jsonable):
         self._rng = random.Random()
         self._responses = []
         self._generated_action = None
-        self._total_turns_counter = 0
         self._floor_turns_counter = 0
 
     def to_json_object(self):
         json_object = {
+            'records': self.records.to_json_object(),
             'is_tutorial_done': self.is_tutorial_done,
             'floor': self.floor,
             'inventory': self.inventory.to_json_object(),
             'rng_state': jsonpickle.encode(self.rng.getstate()),
             'responses': self._responses,
-            'total_turns_counter': self._total_turns_counter,
             'floor_turns_counter': self._floor_turns_counter
         }
         if self._familiar is not None:
@@ -140,11 +140,12 @@ class StateMachineContext(Jsonable):
     def from_json_object(self, json_object):
         json_reader_helper = JsonReaderHelper(json_object)
         self._is_tutorial_done = json_reader_helper.read_bool('is_tutorial_done')
+        self._current_climb_records.from_json_object(json_reader_helper.read_dict('records'))
         self._floor = json_reader_helper.read_int_in_range(
             'floor',
             min_value=self.MIN_FLOOR,
             max_value=self.game_config.highest_floor + 1)
-        self._inventory.from_json_object(json_object['inventory'])
+        self._inventory.from_json_object(json_reader_helper.read_list('inventory'))
         if 'familiar' in json_object:
             self._familiar = self.create_familiar_from_json_object(json_object['familiar'])
         if 'battle_context' in json_object:
@@ -155,7 +156,6 @@ class StateMachineContext(Jsonable):
             self.buffer_unit(self.create_monster_from_json_object(json_object['unit_buffer']))
         self._rng.setstate(jsonpickle.decode(json_reader_helper.read_string('rng_state')))
         self._responses = json_reader_helper.read_list('responses')
-        self._total_turns_counter = json_reader_helper.read_int_with_min('total_turns_counter', min_value=0)
         self._floor_turns_counter = json_reader_helper.read_int_with_min('floor_turns_counter', min_value=0)
 
     @property
@@ -168,9 +168,10 @@ class StateMachineContext(Jsonable):
 
     @property
     def records(self):
-        result = Records()
-        result.turns_counter = self.total_turns_counter
-        return result
+        return self._current_climb_records
+
+    def reset_current_climb_records(self):
+        self._current_climb_records = Records()
 
     def create_familiar_from_json_object(self, unit_json_object):
         return self._create_unit_from_json_object(unit_json_object, self.game_config.monsters_traits)
@@ -202,13 +203,6 @@ class StateMachineContext(Jsonable):
 
     def set_tutorial_done(self):
         self._is_tutorial_done = True
-
-    @property
-    def is_tower_clear_handled(self) -> bool:
-        return self._is_tower_clear_handled
-
-    def set_tower_clear_handled(self):
-        self._is_tower_clear_handled = True
 
     @property
     def floor(self):
@@ -354,15 +348,11 @@ class StateMachineContext(Jsonable):
         return responses
 
     @property
-    def total_turns_counter(self):
-        return self._total_turns_counter
-
-    @property
     def floor_turns_counter(self):
         return self._floor_turns_counter
 
     def increase_turns_counter(self):
-        self._total_turns_counter += 1
+        self._current_climb_records.turns_counter += 1
         self._floor_turns_counter += 1
 
     def is_earthquake_turn(self):

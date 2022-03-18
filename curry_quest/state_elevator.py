@@ -9,6 +9,11 @@ class StateElevatorEvent(StateBase):
             "Do you want to go to the next floor?")
 
 
+class StateElevatorUsed(StateBase):
+    def on_enter(self):
+        self._context.records.used_elevators_counter += 1
+
+
 class StateGoUp(StateBase):
     def on_enter(self):
         self._context.floor += 1

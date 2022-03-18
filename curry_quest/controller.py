@@ -31,8 +31,12 @@ class Controller:
 
         def handle_tower_clear(self, records: Records):
             self._add_to_halls_of_fame(
-                HallsOfFameHandler.TOWER_1_CLEAR,
+                HallsOfFameHandler.ANY_PERCENT,
                 SmallestTurnsNumberRecord(records.turns_counter))
+            if records.used_elevators_counter == 0:
+                self._add_to_halls_of_fame(
+                    HallsOfFameHandler.EQ_PERCENT,
+                    SmallestTurnsNumberRecord(records.turns_counter))
 
         def _add_to_halls_of_fame(self, hall_of_fame_name, record):
             self._halls_of_fame_handler.add(
@@ -124,7 +128,25 @@ class Controller:
         return False
 
     def _handle_hall_of_fame_command(self, player_id, args):
-        self._response_event_handler(self._halls_of_fame_handler.to_string(HallsOfFameHandler.TOWER_1_CLEAR))
+        if len(args) == 0:
+            self._send_invalid_hall_of_fame_command_response(player_id, f'Use "!hall_of_fame **NAME**".')
+            return
+        hall_of_fame_name = args[0]
+        try:
+            self._response_event_handler(self._halls_of_fame_handler.to_string(hall_of_fame_name))
+        except ValueError:
+            self._send_invalid_hall_of_fame_command_response(
+                player_id,
+                f'Hall of Fame with name "{hall_of_fame_name}" does not exist.')
+
+    def _send_invalid_hall_of_fame_command_response(self, player_id, message):
+        halls_of_fame_names = ', '.join(
+            f'"{hall_of_fame_name}"'
+            for hall_of_fame_name
+            in self._halls_of_fame_handler.halls_of_fame_names)
+        self._send_response(
+            player_id,
+            [f'{message}\nAvailable Halls of Fame: {halls_of_fame_names}.'])
 
     def _save_player_state(self, player_id: int):
         self._states_files_handler.save(self._player_state_machine(player_id))
