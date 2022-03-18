@@ -2,9 +2,12 @@ from curry_quest import commands
 from curry_quest.state_base import StateBase
 from curry_quest.unit import Unit
 from curry_quest.statuses import Statuses
+from curry_quest.talents import Talents
 
 
 class StateTrapEvent(StateBase):
+    RESPONSE_WHEN_IMMUNE = 'You are not affected by it.'
+
     def __init__(self, context, trap=None):
         super().__init__(context)
         self._trap = trap
@@ -17,6 +20,15 @@ class StateTrapEvent(StateBase):
         self._context.generate_action(command)
 
     def _select_trap(self):
+        traps_weights = dict(self.game_config.traps_weights)
+        if self._familiar().has_status(Statuses.Sleep):
+            traps_weights['Sleep'] = 0
+        if self._familiar().has_status(Statuses.Upheavel):
+            traps_weights['Upheaval'] = 0
+        if self._familiar().has_status(Statuses.Crack):
+            traps_weights['Crack'] = 0
+        if self._familiar().has_status(Statuses.Blind):
+            traps_weights['Blinder'] = 0
         return self._trap or self._context.random_selection_with_weights(self.game_config.traps_weights)
 
     def _familiar(self) -> Unit:
@@ -32,23 +44,33 @@ class StateTrapEvent(StateBase):
         return commands.EVENT_FINISHED, f'A rock falls from above. You lose {lost_hp} HP.'
 
     def _handle_sleep_trap(self):
-        self._familiar().set_status(Statuses.Sleep)
-        return commands.EVENT_FINISHED, 'You feel a bit drowsy.'
+        if self._familiar().talents.has(Talents.SleepProof):
+            response = self.RESPONSE_WHEN_IMMUNE
+        else:
+            self._familiar().set_status(Statuses.Sleep)
+            response = 'You feel a bit drowsy.'
+        return commands.EVENT_FINISHED, response
 
     def _handle_upheaval_trap(self):
         self._familiar().set_status(Statuses.Upheavel)
+        self._familiar().clear_status(Statuses.Crack)
         return commands.EVENT_FINISHED, 'The ground suddenly rises under your feet.'
 
     def _handle_crack_trap(self):
         self._familiar().set_status(Statuses.Crack)
+        self._familiar().clear_status(Statuses.Upheavel)
         return commands.EVENT_FINISHED, 'The ground collapses around you, leaving you in a pit.'
 
     def _handle_go_up_trap(self):
         return commands.GO_UP, 'A giant spring throws you up to the next floor.'
 
     def _handle_blinder_trap(self):
-        self._familiar().set_timed_status(Statuses.Blind, duration=4)
-        return commands.EVENT_FINISHED, 'Your eyes get cloudy and you\'re unable to see.'
+        if self._familiar().talents.has(Talents.BlinderProof):
+            response = self.RESPONSE_WHEN_IMMUNE
+        else:
+            self._familiar().set_timed_status(Statuses.Blind, duration=4)
+            response = 'Your eyes get cloudy and you\'re unable to see.'
+        return commands.EVENT_FINISHED, response
 
     TRAPS = {
         'Slam': _handle_slam_trap,
@@ -63,7 +85,7 @@ class StateTrapEvent(StateBase):
     def _parse_args(cls, context, args):
         if len(args) == 0:
             return ()
-        trap = ' '.join(args).lower().capitalize()
+        trap = ' '.join(args).strip().lower().capitalize()
         if trap not in cls.TRAPS.keys():
             raise cls.ArgsParseError('Unknown trap')
         return trap,

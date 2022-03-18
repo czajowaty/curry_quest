@@ -291,7 +291,7 @@ class Unit(Jsonable):
     def clear_status(self, statuses: Statuses):
         self._statuses &= ~statuses
         for status in list(Statuses):
-            if statuses & status:
+            if (statuses & status) and status in self._timed_statuses:
                 del self._timed_statuses[status]
 
     @property
@@ -353,6 +353,8 @@ class Unit(Jsonable):
         self._talents = self.traits.talents | other.traits.talents
         if self.genus.is_weak_against(other.genus):
             self._genus = other.genus
+        self.hp = min(self.hp, self.max_hp)
+        self.mp = (self.mp + other.mp) // 2
         self._handle_spell_on_fusion(other)
 
     def _handle_spell_on_fusion(self, other: '__class__'):

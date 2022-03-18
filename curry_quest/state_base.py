@@ -2,7 +2,6 @@ import logging
 from curry_quest.errors import InvalidOperation
 from curry_quest.jsonable import Jsonable, JsonReaderHelper
 from curry_quest.state_machine_context import StateMachineContext
-from abc import abstractmethod
 
 logger = logging.getLogger(__name__)
 

@@ -65,7 +65,7 @@ class StateGameOver(StateBase):
 
 
 class StateMachine(Jsonable):
-    VERSION = 2
+    VERSION = 3
     TRANSITIONS = {
         StateStart: {commands.STARTED: Transition.by_admin(StateInitialize)},
         StateRestartByUser: {commands.STARTED: Transition.by_admin(StateInitialize)},

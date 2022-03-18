@@ -129,6 +129,11 @@ class SaveLoadStateTest(unittest.TestCase):
         loaded_inventory = context.inventory
         self.assertEqual(loaded_inventory.items, ['Pita', 'Holy Scroll', 'Cure-All Herb'])
 
+    def test_last_met_character_is_handled_correctly(self):
+        self._sut._context.last_met_character = 'Beldo'
+        context = self._test_save_load_state_machine_context()
+        self.assertEqual(context.last_met_character, 'Beldo')
+
     def test_item_buffer_is_handled_correctly(self):
         self._sut._context.buffer_item(Oleem())
         context = self._test_save_load_state_machine_context()

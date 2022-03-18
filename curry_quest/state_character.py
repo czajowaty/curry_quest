@@ -21,6 +21,7 @@ class StateCharacterEvent(StateBase):
 
     def on_enter(self):
         character = self._select_character()
+        self._context.last_met_character = character
         encounter_handler = self.ENCOUNTERS[character]
         (next_command, args), response = encounter_handler(self)
         self._context.add_response(f'You meet {character}. {response}')
@@ -33,6 +34,12 @@ class StateCharacterEvent(StateBase):
         character_events_weights = dict(self.game_config.character_events_weights)
         if not self._context.familiar.does_evolve():
             del character_events_weights['Mia']
+        if self._context.familiar.is_hp_at_max():
+            del character_events_weights['Cherrl']
+        if self._context.familiar.has_status(Statuses.StatsBoost):
+            del character_events_weights['Patty']
+        if self._context.last_met_character in character_events_weights:
+            del character_events_weights[self._context.last_met_character]
         return character_events_weights
 
     def _handle_cherrl_encounter(self):
@@ -61,15 +68,21 @@ class StateCharacterEvent(StateBase):
             return (commands.START_ITEM_TRADE, ()), 'She offers you an item exchange.'
 
     def _handle_selfi_encounter(self):
-        familiar_for_trade_traits = self._context.familiar.traits
-        while familiar_for_trade_traits.name == self._context.familiar.traits.name:
-            familiar_for_trade_traits = self._context.rng.choice(list(self.game_config.monsters_traits.values()))
+        familiar_for_trade_traits = self._context.rng.choice(self._create_selfi_familiars_list())
         familiar_for_trade = \
             UnitCreator(familiar_for_trade_traits) \
             .create(self._context.familiar.level, levels=self.game_config.levels)
         familiar_for_trade.exp = self._context.familiar.exp
         self._context.buffer_unit(familiar_for_trade)
         return (commands.START_FAMILIAR_TRADE, ()), 'She offers you a familiar exchange.'
+
+    def _create_selfi_familiars_list(self):
+        return [
+            monster_traits
+            for monster_traits
+            in self.game_config.non_evolved_monster_traits.values()
+            if monster_traits.name != self._context.familiar.name
+        ]
 
     def _handle_mia_encounter(self):
         return (commands.EVOLVE_FAMILIAR, ()), \
@@ -122,11 +135,16 @@ class StateItemTrade(StateBase):
 
 class StateItemTradeAccepted(StateWithInventoryItem):
     def on_enter(self):
-        self._context.inventory.take_item(self._item_index)
-        self._context.inventory.add_item(self._context.take_buffered_item())
-        self._context.add_response(
-            "Fur is very happy with what she got. She leaves with a smug smile on her face. "
-            "Did you make a mistake?")
+        item_to_trade = self._context.inventory.peek_item(self._item_index)
+        item_to_receive = self._context.take_buffered_item()
+        if isinstance(item_to_trade, item_to_receive.__class__):
+            self._context.add_response("\"Are you kidding me?!\", Fur says and walks away angrily...")
+        else:
+            self._context.inventory.take_item(self._item_index)
+            self._context.inventory.add_item(item_to_receive)
+            self._context.add_response(
+                "Fur is very happy with what she got. She leaves with a smug smile on her face. "
+                "Did you make a mistake?")
         self._context.generate_action(commands.EVENT_FINISHED)
 
 

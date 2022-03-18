@@ -110,6 +110,7 @@ class StateMachineContext(Jsonable):
         self._familiar = None
         self._inventory = Inventory()
         self._battle_context = None
+        self._last_met_character = ''
         self._item_buffer = None
         self._unit_buffer = None
         self._rng = random.Random()
@@ -123,6 +124,7 @@ class StateMachineContext(Jsonable):
             'is_tutorial_done': self.is_tutorial_done,
             'floor': self.floor,
             'inventory': self.inventory.to_json_object(),
+            'last_met_character': self.last_met_character,
             'rng_state': jsonpickle.encode(self.rng.getstate()),
             'responses': self._responses,
             'floor_turns_counter': self._floor_turns_counter
@@ -150,6 +152,7 @@ class StateMachineContext(Jsonable):
             self._familiar = self.create_familiar_from_json_object(json_object['familiar'])
         if 'battle_context' in json_object:
             self._read_battle_context_from_json_object(json_reader_helper.read_dict('battle_context'))
+        self.last_met_character = json_reader_helper.read_string('last_met_character')
         if 'item_buffer' in json_object:
             self.buffer_item(ItemJsonLoader.from_json_object(json_object['item_buffer']))
         if 'unit_buffer' in json_object:
@@ -261,6 +264,14 @@ class StateMachineContext(Jsonable):
         unit = self.peek_buffered_unit()
         self.clear_unit_buffer()
         return unit
+
+    @property
+    def last_met_character(self) -> str:
+        return self._last_met_character
+
+    @last_met_character.setter
+    def last_met_character(self, value):
+        self._last_met_character = value
 
     @property
     def rng(self):

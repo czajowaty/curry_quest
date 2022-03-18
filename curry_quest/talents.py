@@ -11,7 +11,9 @@ class Talents(enum.Flag):
     GrowthPromoted = 0x20
     MagicAttackIncreased = 0x80
     MpConsumptionDecreased = 0x100
+    ImmuneToLoweringATK = 0x4000
     ElectricShock = 0x8000
+    BarkProof = 0x40000
     ImmuneToStealing = 0x80000
     Unbrainwashable = 0x100000
     Atrocious = 0x200000
