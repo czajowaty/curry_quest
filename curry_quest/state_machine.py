@@ -153,7 +153,7 @@ class StateMachine(Jsonable):
             commands.ACCEPTED: Transition.by_user(StateElevatorUsed),
             commands.REJECTED: Transition.by_user(StateElevatorOmitted)
         },
-        StateElevatorUsed: {commands.GO_UP, Transition.by_admin(StateGoUp)},
+        StateElevatorUsed: {commands.GO_UP: Transition.by_admin(StateGoUp)},
         StateGoUp: {commands.ENTERED_NEXT_FLOOR: Transition.by_admin(StateNextFloor)},
         StateElevatorOmitted: {commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent)},
         StateNextFloor: {
