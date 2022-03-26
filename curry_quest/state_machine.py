@@ -3,11 +3,11 @@ from curry_quest import commands
 from curry_quest.config import Config
 from curry_quest.errors import InvalidOperation
 from curry_quest.items import normalize_item_name, all_items
-from curry_quest.spell import Spells
+from curry_quest.spells import Spells
 from curry_quest.state_base import StateBase
 from curry_quest.state_battle import StateBattleEvent, StateStartBattle, StateBattlePreparePhase, StateBattleApproach, \
     StateBattlePhase, StateBattlePlayerTurn, StateEnemyStats, StateBattleAttack, StateBattleSkipTurn, \
-    StateBattleUseSpell, StateBattleUseItem, StateBattleTryToFlee, StateBattleEnemyTurn
+    StateBattleConfusedUnitTurn, StateBattleUseSpell, StateBattleUseItem, StateBattleTryToFlee, StateBattleEnemyTurn
 from curry_quest.state_character import StateCharacterEvent, StateItemTrade, StateItemTradeAccepted, \
     StateItemTradeRejected, StateFamiliarTrade, StateFamiliarTradeAccepted, StateFamiliarTradeRejected, \
     StateEvolveFamiliar
@@ -94,6 +94,7 @@ class StateMachine(Jsonable):
             commands.PLAYER_TURN: Transition.by_admin(StateBattlePlayerTurn),
             commands.ENEMY_TURN: Transition.by_admin(StateBattleEnemyTurn),
             commands.SKIP_TURN: Transition.by_admin(StateBattlePhase),
+            commands.CONFUSED_UNIT_TURN: Transition.by_admin(StateBattleConfusedUnitTurn),
             commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent),
             commands.YOU_DIED: Transition.by_admin(StateGameOver)
         },
@@ -124,6 +125,7 @@ class StateMachine(Jsonable):
             commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent)
         },
         StateBattleEnemyTurn: {commands.BATTLE_ACTION_PERFORMED: Transition.by_admin(StateBattlePhase)},
+        StateBattleConfusedUnitTurn: {commands.BATTLE_ACTION_PERFORMED: Transition.by_admin(StateBattlePhase)},
         StateItemEvent: {
             commands.ACCEPTED: Transition.by_user(StateItemPickUp),
             commands.REJECTED: Transition.by_user(StateItemEventFinished)
@@ -450,7 +452,7 @@ class StateMachine(Jsonable):
         try:
             return Spells.find_spell_traits(spell_base_name, target_unit.genus)
         except ValueError as exc:
-            raise InvalidOperation(exc.args)
+            raise InvalidOperation(''.join(exc.args))
 
     def _parse_give_spell_action_spell_level(self, action, target_unit):
         if len(action.args) > 1:

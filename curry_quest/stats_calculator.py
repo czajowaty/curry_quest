@@ -1,6 +1,6 @@
 import math
 from curry_quest.talents import Talents
-from curry_quest.traits import UnitTraits
+from curry_quest.unit_traits import UnitTraits
 
 
 class StatsCalculator:

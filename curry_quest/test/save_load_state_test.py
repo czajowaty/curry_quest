@@ -4,11 +4,11 @@ from curry_quest.floor_descriptor import FloorDescriptor
 from curry_quest.genus import Genus
 from curry_quest.items import Pita, HolyScroll, CureAllHerb, Oleem, MedicinalHerb, FireBall
 from curry_quest.records import Records
-from curry_quest.spell import Spells
+from curry_quest.spells import Spells
 from curry_quest.state_base import StateBase
 from curry_quest.state_battle import StateBattleEvent, StateStartBattle, StateBattlePreparePhase, StateBattleApproach, \
-    StateBattlePhase, StateBattlePlayerTurn, StateEnemyStats, StateBattleSkipTurn, StateBattleAttack, \
-    StateBattleUseSpell, StateBattleUseItem, StateBattleTryToFlee, StateBattleEnemyTurn
+    StateBattlePhase, StateBattlePlayerTurn, StateEnemyStats, StateBattleSkipTurn, StateBattleConfusedUnitTurn, \
+    StateBattleAttack, StateBattleUseSpell, StateBattleUseItem, StateBattleTryToFlee, StateBattleEnemyTurn
 from curry_quest.state_character import StateCharacterEvent, StateItemTrade, StateItemTradeAccepted, \
     StateItemTradeRejected, StateFamiliarTrade, StateFamiliarTradeAccepted, StateFamiliarTradeRejected, \
     StateEvolveFamiliar
@@ -25,8 +25,8 @@ from curry_quest.state_machine_context import StateMachineContext, BattleContext
 from curry_quest.state_trap import StateTrapEvent
 from curry_quest.statuses import Statuses
 from curry_quest.talents import Talents
-from curry_quest.traits import UnitTraits
 from curry_quest.unit import Unit
+from curry_quest.unit_traits import UnitTraits
 import json
 
 
@@ -218,6 +218,12 @@ class SaveLoadStateTest(unittest.TestCase):
         loaded_familiar = self._test_save_load_familiar(familiar)
         self.assertEqual(loaded_familiar.luck, 7)
 
+    def test_familiar_physical_attack_mp_cost_is_handled_correctly(self):
+        self._monster_traits.physical_attack_mp_cost = 8
+        familiar = self._create_familiar()
+        loaded_familiar = self._test_save_load_familiar(familiar)
+        self.assertEqual(loaded_familiar.physical_attack_mp_cost, 8)
+
     def test_familiar_statuses_are_handled_correctly(self):
         familiar = self._create_familiar()
         familiar.set_status(Statuses.Confuse)
@@ -251,7 +257,7 @@ class SaveLoadStateTest(unittest.TestCase):
         familiar.set_spell(spell_traits, level=1)
         loaded_familiar = self._test_save_load_familiar(familiar)
         self.assertTrue(loaded_familiar.has_spell())
-        self.assertIs(loaded_familiar.spell.traits, Spells.find_spell_traits('Heal', Genus.Wind))
+        self.assertIs(loaded_familiar.spell_traits, Spells.find_spell_traits('Heal', Genus.Wind))
 
     def test_familiar_spell_level_is_handled_correctly(self):
         familiar = self._create_familiar()
@@ -260,7 +266,7 @@ class SaveLoadStateTest(unittest.TestCase):
         familiar.set_spell(spell_traits, level=7)
         loaded_familiar = self._test_save_load_familiar(familiar)
         self.assertTrue(loaded_familiar.has_spell())
-        self.assertEqual(loaded_familiar.spell.level, 7)
+        self.assertEqual(loaded_familiar.spell_level, 7)
 
     def test_unit_buffer_is_handled_correctly(self):
         unit = Unit(self._ghosh_traits, self._game_config.levels)
@@ -404,6 +410,8 @@ class SaveLoadStateTest(unittest.TestCase):
         self._test_save_load_bare_state(StateBattleSkipTurn)
 
     def test_state_battle_attack_is_handled_correctly(self):
+        self._context.familiar = self._create_familiar()
+        self._context.start_battle(self._create_enemy(self._monster_traits))
         self._test_save_load_bare_state(StateBattleAttack)
 
     def test_state_battle_use_spell_is_handled_correctly(self):
@@ -429,6 +437,9 @@ class SaveLoadStateTest(unittest.TestCase):
 
     def test_state_battle_enemy_turn_is_handled_correctly(self):
         self._test_save_load_bare_state(StateBattleEnemyTurn)
+
+    def test_state_battle_confused_unit_turn_is_handled_correctly(self):
+        self._test_save_load_bare_state(StateBattleConfusedUnitTurn)
 
     def test_state_item_event_is_handled_correctly(self):
         state = StateItemEvent.create(self._context, ('Fire', 'Ball'))

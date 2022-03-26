@@ -1,19 +1,17 @@
 from curry_quest import commands
-from curry_quest.damage_calculator import DamageCalculator
 from curry_quest.jsonable import JsonReaderHelper
 from curry_quest.items import Item
 from curry_quest.state_base import StateBase
 from curry_quest.state_with_inventory_item import StateWithInventoryItem
 from curry_quest.stats_calculator import StatsCalculator
-from curry_quest.state_machine_context import BattleContext
+from curry_quest.state_machine_context import BattleContext, StateMachineContext
 from curry_quest.statuses import Statuses
 from curry_quest.talents import Talents
-from curry_quest.traits import UnitTraits
+from curry_quest.unit_traits import UnitTraits
 from curry_quest.unit import Unit
+from curry_quest.unit_action import UnitActionContext, UnitActionHandler
 from curry_quest.unit_creator import UnitCreator
-
-DamageRoll = DamageCalculator.DamageRoll
-RelativeHeight = DamageCalculator.RelativeHeight
+from curry_quest.words import Words, FamiliarWords, UnitWords
 
 
 class StateBattleEvent(StateBase):
@@ -74,14 +72,11 @@ class StateBattleBase(StateBase):
     def _is_familiar_unit(self, unit: Unit):
         return unit is self._context.familiar
 
-    def _unit_label(self, unit: Unit):
-        return 'you' if self._is_familiar_unit(unit) else unit.name
+    def _familiar_words(self) -> FamiliarWords:
+        return FamiliarWords()
 
-    def _capitalized_unit_label(self, unit: Unit):
-        return self._unit_label(unit).capitalize()
-
-    def _unit_be_verb(self, unit: Unit):
-        return 'are' if self._is_familiar_unit(unit) else 'is'
+    def _enemy_words(self) -> UnitWords:
+        return UnitWords(self._battle_context.enemy)
 
 
 class StateStartBattle(StateBattleBase):
@@ -152,150 +147,63 @@ class StateBattleApproach(StateBattleBase):
 
 
 class StateBattlePhaseBase(StateBattleBase):
+    @property
+    def is_player_turn(self) -> bool:
+        return self._battle_context.is_player_turn
+
+    def _acting_unit(self) -> Unit:
+        return self._context.familiar if self.is_player_turn else self._battle_context.enemy
+
+    def _waiting_unit(self) -> Unit:
+        return self._battle_context.enemy if self.is_player_turn else self._context.familiar
+
+    def _acting_unit_words(self) -> Words:
+        return self._familiar_words() if self._battle_context.is_player_turn else self._enemy_words()
+
+    def _waiting_unit_words(self) -> Words:
+        return self._enemy_words() if self._battle_context.is_player_turn else self._familiar_words()
+
+    def _unit_words(self, unit: Unit) -> Words:
+        return self._familiar_words() if unit is self._context.familiar else self._enemy_words()
+
+    def _perform_physical_attack(self, attacker: Unit, defender: Unit):
+        self._perform_action(self._context.create_physical_attack_with_target, attacker, defender)
+
+    def _cast_spell(self, caster: Unit, other_unit: Unit):
+        self._perform_action(self._context.create_spell_with_target, caster, other_unit)
+
+    def _perform_action(self, action_creator, performer: Unit, other_unit: Unit):
+        action_handler, action_context = action_creator(performer, other_unit)
+        response = action_handler.perform(action_context)
+        self._context.add_response(response)
+
+
+class StateBattlePhase(StateBattlePhaseBase):
+    def on_enter(self):
+        if self._is_battle_finished():
+            self._handle_battle_finished()
+        else:
+            self._handle_battle_next_turn()
+
+    def _is_battle_finished(self) -> bool:
+        return self._battle_context.is_finished() or self._is_enemy_dead() or self._is_familiar_dead()
+
     def _is_enemy_dead(self) -> bool:
         return self._battle_context.enemy.is_dead()
 
     def _is_familiar_dead(self) -> bool:
         return self._context.familiar.is_dead()
 
-    def _is_battle_finished(self) -> bool:
-        return self._battle_context.is_finished() or self._is_enemy_dead() or self._is_familiar_dead()
-
-    def _perform_physical_attack(self, attacker: Unit, defender: Unit):
-        if not self._is_physical_attack_accurate(attacker):
-            return self._physical_attack_miss_response(attacker, defender)
+    def _handle_battle_finished(self):
+        self._clear_statuses()
+        if self._is_enemy_dead():
+            self._handle_enemy_defeated()
+        self._context.finish_battle()
+        if self._is_familiar_dead():
+            self._context.add_response("You died...")
+            self._context.generate_action(commands.YOU_DIED)
         else:
-            damage_calculator = DamageCalculator(attacker, defender)
-            relative_height = self._select_relative_height(attacker, defender)
-            is_critical = self._select_whether_attack_is_critical(attacker)
-            damage = damage_calculator.physical_damage(self._select_damage_roll(), relative_height, is_critical)
-            defender.deal_damage(damage)
-            physical_attack_descriptor = damage, relative_height, is_critical
-            response = self._physical_attack_hit_response(attacker, defender, physical_attack_descriptor)
-            if defender.talents.has(Talents.ElectricShock):
-                shock_damage = max(damage // 4, 1)
-                attacker.deal_damage(shock_damage)
-                response += ' ' + self._shock_damage_response(attacker, defender, shock_damage)
-            return response
-
-    def _is_physical_attack_accurate(self, attacker: Unit):
-        if attacker.luck <= 0:
-            return False
-        else:
-            hit_chance = (attacker.luck - 1) / attacker.luck
-            if attacker.has_status(Statuses.Blind):
-                hit_chance /= 2
-            return self._context.does_action_succeed(success_chance=hit_chance)
-
-    def _select_damage_roll(self) -> DamageRoll:
-        return self._context.rng.choices([DamageRoll.Low, DamageRoll.Normal, DamageRoll.High], weights=[1, 2, 1])[0]
-
-    def _select_relative_height(self, attacker: Unit, defender: Unit) -> RelativeHeight:
-        def unit_height(unit: Unit):
-            unit_height = 0
-            if unit.has_status(Statuses.Crack):
-                unit_height -= 1
-            if unit.has_status(Statuses.Upheavel):
-                unit_height += 1
-            return unit_height
-
-        attacker_height = unit_height(attacker)
-        defender_height = unit_height(defender)
-        relative_height = attacker_height - defender_height
-        if relative_height > 0:
-            return RelativeHeight.Higher
-        elif relative_height < 0:
-            return RelativeHeight.Lower
-        else:
-            return RelativeHeight.Same
-
-    def _select_whether_attack_is_critical(self, attacker: Unit) -> bool:
-        divider = 2 if attacker.talents.has(Talents.Atrocious) else 64
-        crit_chance = (attacker.luck // divider + 1) / 128
-        return self._context.does_action_succeed(success_chance=crit_chance)
-
-    def _physical_attack_miss_response(self, attacker: Unit, defender: Unit):
-        def is_familiar_attack() -> bool:
-            return self._is_familiar_unit(attacker)
-
-        response = 'You try' if is_familiar_attack() else f'{attacker.name} tries'
-        response += ' to hit '
-        response += f'{defender.name}' if is_familiar_attack() else 'you'
-        response += ', but '
-        response += 'it' if is_familiar_attack() else f'you'
-        response += ' dodge'
-        if is_familiar_attack():
-            response += 's'
-        response += ' swiftly.'
-        return response
-
-    def _physical_attack_hit_response(self, attacker: Unit, defender: Unit, physical_attack_descriptor):
-        def is_familiar_attack() -> bool:
-            return self._is_familiar_unit(attacker)
-
-        def attacker_name() -> str:
-            return 'you' if is_familiar_attack() else attacker.name
-
-        def defender_name() -> str:
-            return defender.name if is_familiar_attack() else 'you'
-
-        damage, relative_height, is_critical = physical_attack_descriptor
-        response = f'{attacker_name().capitalize()} hit'
-        if not is_familiar_attack():
-            response += 's'
-        response += ' '
-        if is_critical:
-            response += 'hard '
-        if relative_height is RelativeHeight.Higher:
-            response += 'from above '
-        elif relative_height is RelativeHeight.Lower:
-            response += 'from below '
-        response += f'dealing {damage} damage. {defender_name().capitalize()} '
-        response += 'has' if is_familiar_attack() else 'have'
-        response += f' {defender.hp} HP left.'
-        return response
-
-    def _shock_damage_response(self, attacker: Unit, defender: Unit, shock_damage: int):
-        def is_familiar_attack() -> bool:
-            return attacker is self._context.familiar
-
-        response = 'An electrical shock runs through '
-        response += 'your' if is_familiar_attack() else f'{attacker.name}\'s'
-        response += f' body dealing {shock_damage} damage. '
-        response += 'You have' if is_familiar_attack() else f'{attacker.name} has'
-        response += f' {attacker.hp} HP left.'
-        return response
-
-    def _cast_spell(self, caster: Unit, other_unit: Unit):
-        spell_cast_context = self._context.create_spell_cast_context(caster, other_unit)
-        return caster.spell.cast(spell_cast_context)
-
-
-class StateBattlePhase(StateBattlePhaseBase):
-    def on_enter(self):
-        if self._is_battle_finished():
-            self._clear_statuses()
-            if self._is_enemy_dead():
-                self._handle_enemy_defeated()
-            self._context.finish_battle()
-            if self._is_familiar_dead():
-                self._context.add_response("You died...")
-                self._context.generate_action(commands.YOU_DIED)
-            else:
-                self._context.generate_action(commands.EVENT_FINISHED)
-        else:
-            next_one_to_act_changed = self._select_next_one_to_act()
-            self._apply_common_statuses_effects()
-            self._handle_timed_statuses_counters()
-            self._handle_counters(next_one_to_act_changed)
-            skip_turn, skip_turn_reason = self._does_unit_skip_turn()
-            if skip_turn:
-                self._context.add_response(skip_turn_reason)
-                self._context.generate_action(commands.SKIP_TURN)
-            elif self._battle_context.is_player_turn:
-                self._context.generate_action(commands.PLAYER_TURN)
-            else:
-                self._context.generate_action(commands.ENEMY_TURN)
+            self._context.generate_action(commands.EVENT_FINISHED)
 
     def _clear_statuses(self):
         familiar = self._context.familiar
@@ -324,12 +232,29 @@ class StateBattlePhase(StateBattlePhaseBase):
             given_experience *= 2
         return given_experience
 
-    def _select_next_one_to_act(self):
+    def _handle_battle_next_turn(self):
+        player_turn_flag_changed = self._handle_is_player_turn_flag()
+        self._apply_common_statuses_effects()
+        self._handle_timed_statuses_counters()
+        self._handle_counters(player_turn_flag_changed)
+        skip_turn, skip_turn_reason = self._does_unit_skip_turn()
+        if skip_turn:
+            self._context.add_response(skip_turn_reason)
+            self._context.generate_action(commands.SKIP_TURN)
+        else:
+            unit_to_act = self._acting_unit()
+            if unit_to_act.has_status(Statuses.Confuse):
+                self._context.generate_action(commands.CONFUSED_UNIT_TURN)
+            elif self._battle_context.is_player_turn:
+                self._context.generate_action(commands.PLAYER_TURN)
+            else:
+                self._context.generate_action(commands.ENEMY_TURN)
+
+    def _handle_is_player_turn_flag(self):
         if self._battle_context.is_first_turn:
             self._battle_context.is_first_turn = False
             return False
-        attacker, defender = self._select_attacker_defender()
-        if attacker.talents.has(Talents.Quick) and not defender.talents.has(Talents.Quick):
+        if self._acting_unit().talents.has(Talents.Quick) and not self._waiting_unit().talents.has(Talents.Quick):
             max_turn_counter = 2
         else:
             max_turn_counter = 1
@@ -341,17 +266,8 @@ class StateBattlePhase(StateBattlePhaseBase):
         else:
             return False
 
-    def _select_attacker_defender(self):
-        if self._battle_context.is_player_turn:
-            attacker = self._context.familiar
-            defender = self._battle_context.enemy
-        else:
-            attacker = self._battle_context.enemy
-            defender = self._context.familiar
-        return attacker, defender
-
     def _apply_common_statuses_effects(self):
-        unit_to_act, _ = self._select_attacker_defender()
+        unit_to_act = self._acting_unit()
         if unit_to_act.has_status(Statuses.Poison):
             self._apply_poison_damage(unit_to_act)
         elif unit_to_act.has_status(Statuses.Sleep):
@@ -362,17 +278,14 @@ class StateBattlePhase(StateBattlePhaseBase):
         if poison_damage >= unit.hp:
             poison_damage = unit.hp - 1
         if poison_damage > 0:
+            unit_words = self._unit_words(unit)
             unit.deal_damage(poison_damage)
-            response = f'{self._capitalized_unit_label(unit)} lose'
-            if not self._is_familiar_unit(unit):
-                response += 's'
-            response += f' {poison_damage} HP. '
-            response += 'You have' if self._is_familiar_unit(unit) else 'It has'
-            response += f' {unit.hp} HP left.'
+            response = f'{unit_words.name.capitalize()} {unit_words.s_verb("lose")} {poison_damage} HP. ' \
+                f'{unit_words.pronoun.capitalize()} {unit_words.have_verb} {unit.hp} HP left.'
             self._context.add_response(response)
 
     def _handle_timed_statuses_counters(self):
-        unit_to_act, _ = self._select_attacker_defender()
+        unit_to_act = self._acting_unit()
         cleared_statuses_list = unit_to_act.decrease_timed_status_counters()
         for cleared_status in cleared_statuses_list:
             self._context.add_response(self._prepare_status_clear_response(unit_to_act, cleared_status))
@@ -398,7 +311,8 @@ class StateBattlePhase(StateBattlePhaseBase):
             else:
                 raise ValueError(f'Unexpected status - {unit}, {status}')
 
-        return f'{self._capitalized_unit_label(unit)} {self._unit_be_verb(unit)} no longer {status_label()}.'
+        unit_words = self._unit_words(unit)
+        return f'{unit_words.name.capitalize()} {unit_words.be_verb} no longer {status_label()}.'
 
     def _prepare_element_protection_status_clear_response(self, unit, status):
         def element_label():
@@ -411,10 +325,8 @@ class StateBattlePhase(StateBattlePhaseBase):
             else:
                 raise ValueError(f'Unexpected status - {unit}, {status}')
 
-        response = f'{self._capitalized_unit_label(unit)} no longer '
-        response += 'have' if self._is_familiar_unit(unit) else 'has'
-        response += f' protection of {element_label()}.'
-        return response
+        unit_words = self._unit_words(unit)
+        return f'{unit_words.name.capitalize()} no longer {unit_words.have_verb} protection of {element_label()}.'
 
     def _prepare_reflect_status_clear_response(self, unit, status):
         def reflect_label():
@@ -427,10 +339,8 @@ class StateBattlePhase(StateBattlePhaseBase):
             else:
                 raise ValueError(f'Unexpected status - {unit}, {status}')
 
-        response = f'{self._capitalized_unit_label(unit)} no longer reflect'
-        if not self._is_familiar_unit(unit):
-            response += 's'
-        response += f' {reflect_label()}'
+        unit_words = self._unit_words(unit)
+        response = f'{unit_words.name.capitalize()} no longer {unit_words.s_verb("reflect")} {reflect_label()}'
         if len(reflect_label()) > 0:
             response += ' '
         response += 'spells.'
@@ -439,8 +349,8 @@ class StateBattlePhase(StateBattlePhaseBase):
     def _prepare_unknown_status_clear_response(self, unit, status):
         return f'You no longer have {status}.'
 
-    def _handle_counters(self, next_one_to_act_changed):
-        if not next_one_to_act_changed:
+    def _handle_counters(self, player_turn_flag_changed):
+        if not player_turn_flag_changed:
             return
         self._handle_holy_scroll_counter()
 
@@ -453,22 +363,15 @@ class StateBattlePhase(StateBattlePhaseBase):
             self._context.add_response("The Holy Scroll's beams dissipate.")
 
     def _does_unit_skip_turn(self):
-        unit, _ = self._select_attacker_defender()
+        unit = self._acting_unit()
+        unit_words = self._acting_unit_words()
         if unit.has_status(Statuses.Sleep):
-            response = f'{self._capitalized_unit_label(unit)} sleep'
-            if not self._is_familiar_unit(unit):
-                response += 's'
-            response += ' through '
-            response += 'your' if self._is_familiar_unit(unit) else 'its'
-            response += ' turn.'
+            response = f'{unit_words.name.capitalize()} {unit_words.s_verb("sleep")} through ' \
+                f'{unit_words.possessive_pronoun} turn.'
             return True, response
         elif unit.has_status(Statuses.Paralyze):
-            response = f'{self._capitalized_unit_label(unit)} {self._unit_be_verb(unit)} paralyzed. '
-            response += 'You' if self._is_familiar_unit(unit) else 'It'
-            response += ' skip'
-            if not self._is_familiar_unit(unit):
-                response += 's'
-            response += ' a turn.'
+            response = f'{unit_words.name.capitalize()} {unit_words.be_verb} paralyzed. ' \
+                f'{unit_words.pronoun.capitalize()} {unit_words.s_verb("skip")} a turn.'
             return True, response
         else:
             return False, ''
@@ -498,27 +401,35 @@ class StateBattleAttack(StateBattlePhaseBase):
     def on_enter(self):
         familiar = self._context.familiar
         enemy = self._battle_context.enemy
-        response = self._perform_physical_attack(attacker=familiar, defender=enemy)
-        self._context.add_response(response)
+        self._perform_physical_attack(attacker=familiar, defender=enemy)
         self._context.generate_action(commands.BATTLE_ACTION_PERFORMED)
+
+    @classmethod
+    def _verify_preconditions(cls, context: StateMachineContext, parsed_args):
+        familiar: Unit = context.familiar
+        action_handler, action_context = context.create_physical_attack_with_target(
+            attacker=familiar,
+            other_unit=context._battle_context.enemy)
+        can_cast, reason = action_handler.can_perform(action_context)
+        if not can_cast:
+            raise cls.PreConditionsNotMet(reason)
 
 
 class StateBattleUseSpell(StateBattlePhaseBase):
     def on_enter(self):
         familiar = self._context.familiar
-        response = self._cast_spell(caster=familiar, other_unit=self._battle_context.enemy)
-        self._context.add_response(response)
+        self._cast_spell(caster=familiar, other_unit=self._battle_context.enemy)
         self._context.generate_action(commands.BATTLE_ACTION_PERFORMED)
 
     @classmethod
-    def _verify_preconditions(cls, context, parsed_args):
-        familiar = context.familiar
+    def _verify_preconditions(cls, context: StateMachineContext, parsed_args):
+        familiar: Unit = context.familiar
         if not familiar.has_spell():
             raise cls.PreConditionsNotMet('You do not have a spell.')
-        if not familiar.has_enough_mp_for_spell():
-            raise cls.PreConditionsNotMet('You do not have enough MP.')
-        spell_cast_context = context.create_spell_cast_context(familiar, context.battle_context.enemy)
-        can_cast, reason = familiar.spell.can_cast(spell_cast_context)
+        spell_cast_action_handler, spell_cast_context = context.create_spell_with_target(
+            caster=familiar,
+            other_unit=context._battle_context.enemy)
+        can_cast, reason = spell_cast_action_handler.can_perform(spell_cast_context)
         if not can_cast:
             raise cls.PreConditionsNotMet(reason)
 
@@ -545,8 +456,9 @@ class StateBattleUseItem(StateWithInventoryItem):
             return commands.CANNOT_USE_ITEM_BATTLE_PHASE, ()
 
     def _handle_can_use_item(self, item: Item):
-        item.use(self._context)
+        response = item.use(self._context)
         self._context.inventory.take_item(self._item_index)
+        self._context.add_response(response)
         if self._battle_context.is_prepare_phase():
             return commands.BATTLE_PREPARE_PHASE_ACTION_PERFORMED, (True, )
         else:
@@ -577,29 +489,124 @@ class StateBattleEnemyTurn(StateBattlePhaseBase):
             enemy = self._battle_context.enemy
 
             def cast_spell():
-                return self._cast_spell(caster=enemy, other_unit=familiar)
+                self._cast_spell(caster=enemy, other_unit=familiar)
 
             def perform_physical_attack():
-                return self._perform_physical_attack(attacker=enemy, defender=familiar)
+                self._perform_physical_attack(attacker=enemy, defender=familiar)
 
             action = self._context.random_selection_with_weights(
                 {
-                    perform_physical_attack: enemy.traits.action_weights.physical_attack,
-                    cast_spell: self._calculate_spell_weight()
+                    perform_physical_attack: self._calculate_unit_action_weight(
+                        has_action=True,
+                        create_action=self._context.create_physical_attack_with_target,
+                        can_perform_action_weight=self._action_weights.physical_attack),
+                    cast_spell: self._calculate_unit_action_weight(
+                        has_action=self._battle_context.enemy.has_spell(),
+                        create_action=self._context.create_spell_with_target,
+                        can_perform_action_weight=self._action_weights.spell)
                 })
-            response = action()
-            self._context.add_response(response)
+            action()
         self._context.generate_action(commands.BATTLE_ACTION_PERFORMED)
 
-    def _calculate_spell_weight(self):
+    @property
+    def _action_weights(self) -> UnitTraits.ActionWeights:
+        return self._battle_context.enemy.traits.action_weights
+
+    def _calculate_unit_action_weight(self, has_action, create_action, can_perform_action_weight):
         enemy = self._battle_context.enemy
-        if not enemy.has_spell():
+        if not has_action:
             return 0
-        if not enemy.has_enough_mp_for_spell():
-            return 0
-        familiar = self._context.familiar
-        spell_cast_context = self._context.create_spell_cast_context(enemy, familiar)
-        can_cast, _ = enemy.spell.can_cast(spell_cast_context)
-        if not can_cast:
-            return 0
-        return enemy.traits.action_weights.spell
+        action_handler, action_context = create_action(enemy, self._context.familiar)
+        can_perform, _ = action_handler.can_perform(action_context)
+        return can_perform_action_weight if can_perform else 0
+
+
+class StateBattleConfusedUnitTurn(StateBattlePhaseBase):
+    def on_enter(self):
+        unit_words = self._acting_unit_words()
+        self._context.add_response(f'{unit_words.name.capitalize()} {unit_words.be_verb} confused.')
+        actions_descriptors = [
+            descriptor
+            for descriptor
+            in [
+                self._skip_turn_action_descriptor(),
+                self._physical_attack_action_descriptor(),
+                self._spell_cast_action_descriptor(),
+                self._use_item_action_descriptor()
+            ]
+            if descriptor is not None]
+        action, context_creator = self._context.rng.choice(actions_descriptors)
+        response = action(context_creator())
+        self._context.add_response(response)
+        self._context.generate_action(commands.BATTLE_ACTION_PERFORMED)
+
+    def _physical_attack_action_descriptor(self):
+        acting_unit = self._acting_unit()
+        if not acting_unit.has_enough_mp_for_physical_attack():
+            return None
+        action_handler, action_context = self._context.create_physical_attack_without_target(attacker=acting_unit)
+
+        def create_action_context():
+            self._fill_unit_action_context(action_context, action_handler)
+            return action_context
+
+        return action_handler.perform, create_action_context
+
+    def _fill_unit_action_context(self, context: UnitActionContext, action_handler: UnitActionHandler):
+        performer = self._acting_unit()
+        context.performer = performer
+        targets = []
+        if action_handler.can_target_self():
+            targets.append(self._acting_unit())
+        if action_handler.can_target_other_unit():
+            targets.append(self._waiting_unit())
+        if action_handler.can_have_no_target():
+            targets.append(None)
+        context.target = self._context.rng.choice(targets)
+        context.state_machine_context = self._context
+
+    def _spell_cast_action_descriptor(self):
+        acting_unit = self._acting_unit()
+        if not acting_unit.has_spell():
+            return None
+        if not acting_unit.has_enough_mp_for_spell_cast():
+            return None
+        action_handler, action_context = self._context.create_spell_without_target(caster=acting_unit)
+
+        def create_action_context():
+            self._fill_unit_action_context(action_context, action_handler)
+            target = action_context.target
+            if target is not None:
+                action_context.reflected_target = self._waiting_unit() if target is acting_unit else acting_unit
+            return action_context
+
+        return action_handler.perform, create_action_context
+
+    def _use_item_action_descriptor(self):
+        if not self.is_player_turn:
+            return None
+        usable_items_list = self._prepare_usable_items_list()
+        if len(usable_items_list) == 0:
+            return None
+
+        def action_handler(_):
+            item_index, item = self._context.rng.choice(usable_items_list)
+            self._context.inventory.take_item(item_index)
+            return item.use(self._context)
+
+        return action_handler, lambda: None
+
+    def _prepare_usable_items_list(self) -> list[Item]:
+        return [(item_index, item) for item_index, item in self._items_iterator() if item.can_use(self._context)[0]]
+
+    def _items_iterator(self):
+        inventory = self._context.inventory
+        for item_index in range(inventory.size):
+            yield item_index, inventory.peek_item(item_index)
+
+    def _skip_turn_action_descriptor(self):
+        def skip_turn(_):
+            unit_words = self._acting_unit_words()
+            return f'{unit_words.name.capitalize()} {unit_words.s_verb("decide")} to skip a turn.'
+
+        return skip_turn, lambda: None

@@ -1,13 +1,13 @@
 import logging
-from curry_quest.config import Config
+from curry_quest.ability import Ability
 from curry_quest.errors import InvalidOperation
 from curry_quest.genus import Genus
 from curry_quest.jsonable import Jsonable, InvalidJson, JsonReaderHelper
-from curry_quest.spell import Spell, Spells
+from curry_quest.levels_config import Levels
 from curry_quest.stats_calculator import StatsCalculator
 from curry_quest.statuses import Statuses
 from curry_quest.talents import Talents
-from curry_quest.traits import SpellTraits, UnitTraits
+from curry_quest.unit_traits import UnitTraits
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ class Unit(Jsonable):
     MIN_DEFENSE = 1
     MIN_LUCK = 0
 
-    def __init__(self, traits: UnitTraits, levels: Config.Levels):
+    def __init__(self, traits: UnitTraits, levels: Levels):
         self._traits = traits
         self._levels = levels
         self.name = traits.name
@@ -37,11 +37,7 @@ class Unit(Jsonable):
         self.luck = traits.base_luck
         self._timed_statuses: dict[Statuses, int] = {}
         self.clear_statuses()
-        if traits.native_spell_base_name is not None:
-            native_spell_traits = Spells.find_spell_traits(traits.native_spell_base_name, self.genus)
-            self.set_spell(native_spell_traits, self.level)
-        else:
-            self.clear_spell()
+        self.clear_spell()
         self.exp = 0
 
     def to_json_object(self):
@@ -70,6 +66,8 @@ class Unit(Jsonable):
         return unit_json_object
 
     def from_json_object(self, json_object):
+        from curry_quest.spells import Spells
+
         json_reader_helper = JsonReaderHelper(json_object)
         self.genus = json_reader_helper.read_enum('genus', Genus)
         self.level = json_reader_helper.read_int_in_range('level', min_value=1, max_value=self._levels.max_level)
@@ -209,10 +207,14 @@ class Unit(Jsonable):
     def restore_mp(self):
         self.mp = self.max_mp
 
-    def use_mp(self, mp_usage):
-        if self.talents.has(Talents.MpConsumptionDecreased):
-            mp_usage //= 2
-        self.mp -= mp_usage
+    def use_mp(self, mp_cost):
+        self.mp -= self._action_mp_cost(mp_cost)
+
+    def has_enough_mp_for_action(self, mp_cost) -> bool:
+        return self.mp >= self._action_mp_cost(mp_cost)
+
+    def _action_mp_cost(self, mp_cost):
+        return max(1, mp_cost // 2) if self.talents.has(Talents.MpConsumptionDecreased) else mp_cost
 
     @property
     def attack(self):
@@ -246,6 +248,13 @@ class Unit(Jsonable):
         if self.has_boosted_stats():
             stat_factor += STAT_BOOST_FACTOR
         return stat_factor
+
+    @property
+    def physical_attack_mp_cost(self):
+        return self.traits.physical_attack_mp_cost
+
+    def has_enough_mp_for_physical_attack(self) -> bool:
+        return self.has_enough_mp_for_action(self.physical_attack_mp_cost)
 
     def has_any_status(self) -> bool:
         return self._statuses.value != 0
@@ -295,18 +304,20 @@ class Unit(Jsonable):
                 del self._timed_statuses[status]
 
     @property
-    def spell(self) -> Spell:
-        if not self.has_spell():
-            return None
+    def spell_traits(self):
+        return self._spell_traits
+
+    @property
+    def spell_level(self):
         spell_level = self._spell_level
         if self.talents.has(Talents.MagicAttackIncreased):
             spell_level *= 2
-        return Spell(self._spell_traits, spell_level)
+        return spell_level
 
     def has_spell(self) -> bool:
         return self._spell_traits is not None
 
-    def set_spell(self, traits: SpellTraits, level: int):
+    def set_spell(self, traits, level: int):
         self._spell_traits = traits
         self._spell_level = level
 
@@ -319,12 +330,19 @@ class Unit(Jsonable):
         self._spell_traits = None
         self._spell_level = 0
 
-    @property
-    def spell_mp_cost(self) -> int:
-        return self._spell_traits.mp_cost
+    def has_enough_mp_for_spell_cast(self) -> bool:
+        return self.has_enough_mp_for_action(self.spell_traits.mp_cost)
 
-    def has_enough_mp_for_spell(self) -> bool:
-        return self.mp >= self.spell_mp_cost
+    def has_ability(self) -> bool:
+        return False
+
+    @property
+    def ability(self) -> Ability:
+        return None
+
+    @property
+    def ability_mp_cost(self) -> int:
+        return 0
 
     @property
     def exp(self):
@@ -366,6 +384,8 @@ class Unit(Jsonable):
         self.set_spell(spell_traits, level=self.level)
 
     def _select_fusion_spell_traits(self, other: '__class__'):
+        from curry_quest.spells import Spells
+
         if other.has_spell():
             return other._spell_traits
         else:

@@ -1,6 +1,7 @@
-from curry_quest.config import Config
+from curry_quest.levels_config import Levels
+from curry_quest.spells import Spells
 from curry_quest.stats_calculator import StatsCalculator
-from curry_quest.traits import UnitTraits
+from curry_quest.unit_traits import UnitTraits
 from curry_quest.unit import Unit
 
 
@@ -8,7 +9,7 @@ class UnitCreator:
     def __init__(self, unit_traits: UnitTraits):
         self._unit_traits = unit_traits
 
-    def create(self, level, levels: Config.Levels) -> Unit:
+    def create(self, level, levels: Levels) -> Unit:
         stats_calculator = StatsCalculator(self._unit_traits)
         unit = Unit(self._unit_traits, levels)
         unit.level = level
@@ -19,7 +20,10 @@ class UnitCreator:
         unit.attack = stats_calculator.attack(level)
         unit.defense = stats_calculator.defense(level)
         unit.luck = stats_calculator.luck(level)
-        unit.set_spell_level(level)
+        spell_name = self._unit_traits.native_spell_base_name
+        if spell_name is not None:
+            spell_traits = Spells.find_spell_traits(spell_name, unit.genus)
+            unit.set_spell(spell_traits, level)
         if level > 0:
             unit.exp = levels.experience_for_next_level(level - 1)
         return unit

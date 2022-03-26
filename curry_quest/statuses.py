@@ -7,7 +7,7 @@ class Statuses(enum.Flag):
     Paralyze = auto()
     Blind = auto()
     StatsBoost = auto()
-    Upheavel = auto()
+    Upheaval = auto()
     Crack = auto()
     Poison = auto()
     Confuse = auto()

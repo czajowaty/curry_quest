@@ -1,17 +1,19 @@
 import jsonpickle
 import random
-from curry_quest.config import Config
 from curry_quest.errors import InvalidOperation
 from curry_quest.inventory import Inventory
 from curry_quest.items import Item, ItemJsonLoader
 from curry_quest.jsonable import Jsonable, InvalidJson, JsonReaderHelper
-from curry_quest.state_machine_action import StateMachineAction
-from curry_quest.talents import Talents
-from curry_quest.traits import UnitTraits, SpellCastContext
-from curry_quest.unit import Unit
-from curry_quest.unit_creator import UnitCreator
+from curry_quest.physical_attack_unit_action import PhysicalAttackUnitActionHandler
 from curry_quest.records import Records
 from curry_quest.records_events_handler import RecordsEventsHandler, EmptyRecordsEventsHandler
+from curry_quest.spell_cast_unit_action import SpellCastContext, SpellCastActionHandler
+from curry_quest.state_machine_action import StateMachineAction
+from curry_quest.talents import Talents
+from curry_quest.unit import Unit
+from curry_quest.unit_action import UnitActionContext
+from curry_quest.unit_creator import UnitCreator
+from curry_quest.unit_traits import UnitTraits
 
 
 class BattleContext(Jsonable):
@@ -101,8 +103,10 @@ class StateMachineContext(Jsonable):
     RESPONSE_LINE_BREAK = '\n'
     MIN_FLOOR = 0
 
-    def __init__(self, game_config: Config):
-        self._game_config = game_config
+    def __init__(self, game_config):
+        from curry_quest.config import Config
+
+        self._game_config: Config = game_config
         self._records_events_handler: RecordsEventsHandler = EmptyRecordsEventsHandler()
         self._current_climb_records = Records()
         self._is_tutorial_done = False
@@ -296,17 +300,6 @@ class StateMachineContext(Jsonable):
             raise InvalidOperation(f'Battle not started')
         self.clear_battle_context()
 
-    def create_spell_cast_context(self, caster: Unit, other_unit: Unit) -> SpellCastContext:
-        if not caster.has_spell():
-            raise InvalidOperation(f'{caster.name} does not have a spell')
-        spell_cast_context = SpellCastContext()
-        spell_cast_context.caster = caster
-        target = caster.spell.select_target(caster, other_unit)
-        spell_cast_context.target = target
-        spell_cast_context.other_than_target = other_unit if target is caster else caster
-        spell_cast_context.state_machine_context = self
-        return spell_cast_context
-
     def generate_floor_monster(self, floor: int, level_increase: int=0) -> Unit:
         highest_floor = self.game_config.highest_floor
         if floor > highest_floor:
@@ -384,3 +377,40 @@ class StateMachineContext(Jsonable):
     def _turns_until_turn(self, turn):
         result = turn - self._floor_turns_counter
         return result if result > 0 else 0
+
+    def create_physical_attack_without_target(self, attacker: Unit):
+        action_handler = PhysicalAttackUnitActionHandler(attacker.physical_attack_mp_cost)
+        action_context = UnitActionContext()
+        action_context.performer = attacker
+        action_context.state_machine_context = self
+        return action_handler, action_context
+
+    def create_physical_attack_with_target(self, attacker: Unit, other_unit: Unit):
+        return self._create_action_with_target(
+            self.create_physical_attack_without_target,
+            attacker,
+            other_unit)
+
+    def create_spell_without_target(self, caster: Unit):
+        if not caster.has_spell():
+            raise InvalidOperation(f'{self.name} does not have a spell')
+        action_handler = SpellCastActionHandler(caster.spell_traits)
+        action_context = SpellCastContext(caster.spell_level)
+        action_context.performer = caster
+        action_context.state_machine_context = self
+        return action_handler, action_context
+
+    def create_spell_with_target(self, caster: Unit, other_unit: Unit):
+        action_handler, action_context = self._create_action_with_target(
+            self.create_spell_without_target,
+            caster,
+            other_unit)
+        target = action_context.target
+        if target is not None:
+            action_context.reflected_target = other_unit if target is caster else caster
+        return action_handler, action_context
+
+    def _create_action_with_target(self, create_action_without_target, performer, other_unit):
+        action_handler, action_context = create_action_without_target(performer)
+        action_context.target = action_handler.select_target(performer, other_unit)
+        return action_handler, action_context

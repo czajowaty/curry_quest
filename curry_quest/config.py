@@ -1,9 +1,12 @@
 from json_config_parser import JsonConfigParser
 from collections.abc import Mapping, Sequence
 from curry_quest.floor_descriptor import FloorDescriptor, Monster
+from curry_quest.genus import Genus
 from curry_quest.items import all_items
-from curry_quest.spell import Spells
-from curry_quest.traits import UnitTraits, Genus, Talents
+from curry_quest.levels_config import Levels
+from curry_quest.spells import Spells
+from curry_quest.talents import Talents
+from curry_quest.unit_traits import UnitTraits
 
 
 class Config:
@@ -29,20 +32,6 @@ class Config:
             self.without_penalty = 0
             self.with_penalty = 0
 
-    class Levels:
-        def __init__(self):
-            self._experience_per_level = []
-
-        @property
-        def max_level(self) -> int:
-            return len(self._experience_per_level)
-
-        def add_level(self, experience_required: int):
-            self._experience_per_level.append(experience_required)
-
-        def experience_for_next_level(self, level: int) -> int:
-            return self._experience_per_level[level]
-
     class SpecialUnitsTraits:
         def __init__(self):
             self.ghosh = UnitTraits()
@@ -56,7 +45,8 @@ class Config:
         self.character_events_weights = {}
         self.traps_weights = {}
         self.found_items_weights = {}
-        self._levels = self.Levels()
+        self._levels = Levels()
+        self._default_physical_attack_mp_cost = 0
         self._monsters_traits = {}
         self._special_units_traits = self.SpecialUnitsTraits()
         self._floors = []
@@ -130,6 +120,7 @@ class Config:
             self._read_levels()
             self._default_monster_action_weights = self._read_monster_action_weights(
                 self._config_json['default_monster_action_weights'])
+            self._default_physical_attack_mp_cost = self._config_json['default_physical_attack_mp_cost']
             self._read_monsters_traits()
             self._read_special_units_traits()
             self._read_floors()
@@ -217,6 +208,7 @@ class Config:
                 unit_traits.base_exp_given = unit_json['base_exp']
                 unit_traits.exp_given_growth = unit_json['exp_growth']
                 unit_traits.native_genus = self._parse_genus(unit_json['element'])
+                unit_traits.physical_attack_mp_cost = self._parse_physical_attack_mp_cost(unit_json)
                 unit_traits.native_spell_base_name = unit_json.get('spell')
                 unit_traits.dormant_spell_base_name = unit_json.get('dormant_spell')
                 if 'action_weights' in unit_json:
@@ -239,6 +231,11 @@ class Config:
                 if genus.name == genus_name:
                     return genus
             raise ValueError(f'Unknown genus "{genus_name}"')
+
+        def _parse_physical_attack_mp_cost(self, unit_json):
+            return unit_json['physical_attack_mp_cost'] \
+                if 'physical_attack_mp_cost' in \
+                unit_json else self._default_physical_attack_mp_cost
 
         def _parse_talents(self, talents_string):
             if talents_string is None:

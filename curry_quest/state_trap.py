@@ -23,7 +23,7 @@ class StateTrapEvent(StateBase):
         traps_weights = dict(self.game_config.traps_weights)
         if self._familiar().has_status(Statuses.Sleep):
             traps_weights['Sleep'] = 0
-        if self._familiar().has_status(Statuses.Upheavel):
+        if self._familiar().has_status(Statuses.Upheaval):
             traps_weights['Upheaval'] = 0
         if self._familiar().has_status(Statuses.Crack):
             traps_weights['Crack'] = 0
@@ -52,13 +52,13 @@ class StateTrapEvent(StateBase):
         return commands.EVENT_FINISHED, response
 
     def _handle_upheaval_trap(self):
-        self._familiar().set_status(Statuses.Upheavel)
+        self._familiar().set_status(Statuses.Upheaval)
         self._familiar().clear_status(Statuses.Crack)
         return commands.EVENT_FINISHED, 'The ground suddenly rises under your feet.'
 
     def _handle_crack_trap(self):
         self._familiar().set_status(Statuses.Crack)
-        self._familiar().clear_status(Statuses.Upheavel)
+        self._familiar().clear_status(Statuses.Upheaval)
         return commands.EVENT_FINISHED, 'The ground collapses around you, leaving you in a pit.'
 
     def _handle_go_up_trap(self):

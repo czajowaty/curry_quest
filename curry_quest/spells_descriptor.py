@@ -3,38 +3,52 @@ from curry_quest.damage_calculator import DamageCalculator
 from curry_quest.genus import Genus
 from curry_quest.statuses import Statuses
 from curry_quest.talents import Talents
-from curry_quest.traits import CastSpellHandler, SpellCastContext, SpellTraits
+from curry_quest.spell_cast_context import SpellCastContext
+from curry_quest.spell_handler import SpellHandler
+from curry_quest.spell_traits import SpellTraits
 from typing import Type
 
 
-class DamageSpellHandler(CastSpellHandler):
+class DamageSpellHandler(SpellHandler):
     def __init__(self, raw_spell_damage):
         self._raw_spell_damage = raw_spell_damage
 
     def select_target(self, caster, other_unit):
         return other_unit
 
-    def can_cast(self, spell_cast_context: SpellCastContext):
+    def can_target_self(self) -> bool:
+        return False
+
+    def can_target_other_unit(self) -> bool:
+        return True
+
+    def can_cast(self, spell_cast_context: SpellCastContext) -> tuple[bool, str]:
         return True, ''
 
-    def cast(self, spell_cast_context):
-        attacker = spell_cast_context.caster
+    def cast(self, spell_cast_context: SpellCastContext) -> str:
+        attacker = spell_cast_context.performer
         defender = spell_cast_context.target
         damage = DamageCalculator(attacker, defender).spell_damage(self._raw_spell_damage)
         defender.deal_damage(damage)
         return self._spell_attack_response(spell_cast_context, damage)
 
     def _spell_attack_response(self, spell_cast_context: SpellCastContext, damage: int):
+        target_words = spell_cast_context.target_words
         defender = spell_cast_context.target
-        defender_name = spell_cast_context.target_name
         return f'It deals {damage} damage. ' \
-            f'{defender_name.capitalize()} {spell_cast_context.target_have_verb} {defender.hp} HP left.'
+            f'{target_words.name.capitalize()} {target_words.have_verb} {defender.hp} HP left.'
 
 
-class ApplyDebuffSpellHandler(CastSpellHandler):
+class ApplyDebuffSpellHandler(SpellHandler):
     def __init__(self, debuff_status: Statuses, debuff_applied_label: str):
         self._debuff_status = debuff_status
         self._debuff_applied_label = debuff_applied_label
+
+    def can_target_self(self) -> bool:
+        return True
+
+    def can_target_other_unit(self) -> bool:
+        return True
 
     def select_target(self, caster, other_unit):
         return other_unit
@@ -57,10 +71,8 @@ class ApplyDebuffSpellHandler(CastSpellHandler):
     def _calculate_debuff_duration(self, spell_cast_context: SpellCastContext): pass
 
     def _prepare_response_on_success(self, spell_cast_context: SpellCastContext, duration: int):
-        response = f'{spell_cast_context.target_name.capitalize()} '
-        response += 'is' if spell_cast_context.is_used_by_familiar() else 'are'
-        response += f' {self._debuff_applied_label}.'
-        return response
+        target_words = spell_cast_context.target_words
+        return f'{target_words.name.capitalize()} {target_words.be_verb} {self._debuff_applied_label}.'
 
 
 class ApplyDebuffWithStaticLikelihoodSpellHandler(ApplyDebuffSpellHandler):
@@ -79,7 +91,7 @@ def calculate_standard_status_duration(
         static_status_duration,
         random_status_duration_upper_limit=3):
     rng = spell_cast_context.state_machine_context.rng
-    spell_level_based_duration = spell_cast_context.caster.spell.level // 4
+    spell_level_based_duration = spell_cast_context.spell_level // 4
     random_duration = rng.randint(0, random_status_duration_upper_limit)
     return static_status_duration + spell_level_based_duration + random_duration
 
@@ -101,11 +113,17 @@ class PoisonSpellHandler(ApplyDebuffWithStaticLikelihoodSpellHandler):
         return calculate_standard_status_duration(spell_cast_context, static_status_duration=16)
 
 
-class ApplyBuffSpellHandler(CastSpellHandler):
+class ApplyBuffSpellHandler(SpellHandler):
     def __init__(self, buff_status: Statuses, static_buff_duration: int, random_buff_duration_upper_limit: int):
         self._buff_status = buff_status
         self._static_buff_duration = static_buff_duration
         self._random_buff_duration_upper_limit = random_buff_duration_upper_limit
+
+    def can_target_self(self) -> bool:
+        return True
+
+    def can_target_other_unit(self) -> bool:
+        return True
 
     def select_target(self, caster, other_unit):
         return caster
@@ -134,11 +152,8 @@ class WallSpellHandler(ApplyBuffSpellHandler):
         self._protection_label = protection_label
 
     def _create_response(self, spell_cast_context: SpellCastContext):
-        response = f'{spell_cast_context.target_name.capitalize()} gain'
-        if not spell_cast_context.is_used_on_familiar():
-            response += 's'
-        response += f' protection of {self._protection_label}.'
-        return response
+        target_words = spell_cast_context.target_words
+        return f'{target_words.name.capitalize()} {target_words.s_verb("gain")} protection of {self._protection_label}.'
 
 
 class MirrorSpellHandler(ApplyBuffSpellHandler):
@@ -150,16 +165,19 @@ class MirrorSpellHandler(ApplyBuffSpellHandler):
         self._reflect_label = reflect_label
 
     def _create_response(self, spell_cast_context: SpellCastContext):
-        response = f'{spell_cast_context.target_name.capitalize()} reflect'
-        if not spell_cast_context.is_used_on_familiar():
-            response += 's'
-        response += f' {self._reflect_label} spells.'
-        return response
+        target_words = spell_cast_context.target_words
+        return f'{target_words.name.capitalize()} {target_words.s_verb("reflect")} {self._reflect_label} spells.'
 
 
-class HpRecoverySpellHandler(CastSpellHandler):
+class HpRecoverySpellHandler(SpellHandler):
     def select_target(self, caster, other_unit):
         return caster
+
+    def can_target_self(self) -> bool:
+        return True
+
+    def can_target_other_unit(self) -> bool:
+        return True
 
     def can_cast(self, spell_cast_context: SpellCastContext):
         target = spell_cast_context.target
@@ -178,9 +196,9 @@ class HpRecoverySpellHandler(CastSpellHandler):
 
     def _spell_attack_response(self, spell_cast_context: SpellCastContext, recovery_amount):
         target = spell_cast_context.target
-        target_name = spell_cast_context.target_name
+        target_words = spell_cast_context.target_words
         return f'It heals {recovery_amount} HP. ' \
-            f'{target_name.capitalize()} {spell_cast_context.target_have_verb} {target.hp} HP.'
+            f'{target_words.name.capitalize()} {target_words.have_verb} {target.hp} HP.'
 
     @abstractmethod
     def _calculate_recovery_amount(self, spell_cast_context: SpellCastContext): pass
@@ -244,7 +262,7 @@ class BindSpellHandler(ApplyDebuffWithStaticLikelihoodSpellHandler):
 
 class LaLeBindSpellHandler(BindSpellHandler):
     def _does_cast_succeed(self, spell_cast_context: SpellCastContext):
-        if not spell_cast_context.caster.genus.is_strong_against(spell_cast_context.target.genus):
+        if not spell_cast_context.performer.genus.is_strong_against(spell_cast_context.target.genus):
             return False
         return super()._does_cast_succeed(spell_cast_context)
 
@@ -273,7 +291,7 @@ class SleepSpellHandler(ApplyDebuffWithStaticLikelihoodSpellHandler):
             static_status_duration=self._static_debuff_duration)
 
 
-class MissableSpellHandler(CastSpellHandler):
+class MissableSpellHandler(SpellHandler):
     def cast(self, spell_cast_context: SpellCastContext):
         if self._does_cast_succeed(spell_cast_context):
             return self._handle_cast_success(spell_cast_context)
@@ -290,6 +308,12 @@ class MissableSpellHandler(CastSpellHandler):
 class NonWindDownSpellHandler(MissableSpellHandler):
     def select_target(self, caster, other_unit):
         return other_unit
+
+    def can_target_self(self) -> bool:
+        return False
+
+    def can_target_other_unit(self) -> bool:
+        return True
 
     def can_cast(self, spell_cast_context: SpellCastContext):
         return True, ''
@@ -340,9 +364,15 @@ class LeDownSpellHandler(NonWindDownSpellHandler):
         return target.defense
 
 
-class LoDownSpellHandler(CastSpellHandler):
+class LoDownSpellHandler(SpellHandler):
     def select_target(self, caster, other_unit):
         return other_unit
+
+    def can_target_self(self) -> bool:
+        return False
+
+    def can_target_other_unit(self) -> bool:
+        return True
 
     def can_cast(self, spell_cast_context: SpellCastContext):
         is_min_level = spell_cast_context.target.is_min_level()
@@ -357,7 +387,7 @@ class LoDownSpellHandler(CastSpellHandler):
         else:
             return 'Spell misses.'
 
-    def _does_cast_succeed(self, spell_cast_context):
+    def _does_cast_succeed(self, spell_cast_context: SpellCastContext):
         target = spell_cast_context.target
         reduced_target_luck = target.luck - 16
         if reduced_target_luck <= 0:
@@ -365,14 +395,12 @@ class LoDownSpellHandler(CastSpellHandler):
         success_chance = (spell_cast_context.spell_level - 1) / reduced_target_luck
         return spell_cast_context.state_machine_context.does_action_succeed(success_chance)
 
-    def _decrease_level(self, spell_cast_context):
+    def _decrease_level(self, spell_cast_context: SpellCastContext):
         target = spell_cast_context.target
         target.decrease_level()
-        response = f'{spell_cast_context.target_name.capitalize()} feel'
-        if spell_cast_context.is_used_by_familiar():
-            response += 's'
-        response += f' weaker. New stats - {target.stats_to_string()}.'
-        return response
+        target_words = spell_cast_context.target_words
+        return f'{target_words.name.capitalize()} {target_words.s_verb("feel")} weaker. ' \
+            f'New stats - {target.stats_to_string()}.'
 
 
 class SpellNameCreator(ABC):
@@ -599,7 +627,7 @@ def create_spells_traits():
                 spell_traits.name = spell_name
                 spell_traits.native_genus = genus
                 spell_traits.mp_cost = spell_descriptor['mp_cost']
-                spell_traits.cast_handler = genus_specific_cast_handler or generic_cast_handler
+                spell_traits.handler = genus_specific_cast_handler or generic_cast_handler
                 return spell_traits
 
             spells_traits[spell_base_name] = {

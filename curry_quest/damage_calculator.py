@@ -1,6 +1,7 @@
 import enum
 from curry_quest.genus import Genus
 from curry_quest.statuses import Statuses
+from curry_quest.unit import Unit
 
 
 class DamageCalculator:
@@ -28,7 +29,7 @@ class DamageCalculator:
         Genus.Wind: Statuses.FireProtection
     }
 
-    def __init__(self, attacker, defender):
+    def __init__(self, attacker: Unit, defender: Unit):
         self._attacker = attacker
         self._defender = defender
 
@@ -44,8 +45,7 @@ class DamageCalculator:
         return max(damage_dealt, 1)
 
     def spell_damage(self, raw_spell_damage) -> int:
-        spell = self._attacker.spell
-        base_damage = (raw_spell_damage + spell.level) * 2
+        base_damage = (raw_spell_damage + self._attacker.spell_level) * 2
         if self._does_defender_has_elemental_protection_against_attacker():
             base_damage //= 4
             combat_damage = 0

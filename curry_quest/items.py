@@ -27,7 +27,7 @@ class Item(Jsonable):
     def matches_name(cls, *item_name_parts):
         return normalize_item_name(cls.name).startswith(normalize_item_name(item_name_parts))
 
-    def can_use(self, context) -> (bool, str):
+    def can_use(self, context) -> tuple[bool, str]:
         raise NotImplementedError(f'{self.__class__.__name__}.{self.can_use}')
 
     def use(self, context) -> str:
@@ -35,7 +35,7 @@ class Item(Jsonable):
         if not can_use:
             raise InvalidOperation(f'Cannot use {self.name}. {reason}')
         effect = self._use(context)
-        context.add_response(f"You used the {self.name}. {effect}")
+        return f"You used the {self.name}. {effect}"
 
     def _use(self, context) -> str:
         raise NotImplementedError(f"{self.__class__.__name__}.{self.use}")
@@ -47,7 +47,7 @@ class Pita(Item):
     def name(cls) -> str:
         return 'Pita'
 
-    def can_use(self, context) -> (bool, str):
+    def can_use(self, context) -> tuple[bool, str]:
         if context.familiar.is_mp_at_max():
             return False, 'Your MP is already at max.'
         else:
@@ -59,7 +59,7 @@ class Pita(Item):
 
 
 class BattlePhaseOnlyItem(Item):
-    def can_use(self, context) -> bool:
+    def can_use(self, context) -> tuple[bool, str]:
         if not context.is_in_battle():
             return False, 'You are not in combat.'
         elif context.battle_context.is_prepare_phase():
@@ -96,7 +96,7 @@ class MedicinalHerb(Item):
     def name(cls) -> str:
         return 'Medicinal Herb'
 
-    def can_use(self, context) -> bool:
+    def can_use(self, context) -> tuple[bool, str]:
         if context.familiar.is_hp_at_max():
             return False, 'Your HP is already at max.'
         else:
@@ -113,7 +113,7 @@ class CureAllHerb(Item):
     def name(cls) -> str:
         return 'Cure-All Herb'
 
-    def can_use(self, context) -> bool:
+    def can_use(self, context) -> tuple[bool, str]:
         if not context.familiar.has_any_status():
             return False, 'You do not have any statuses.'
         else:
@@ -144,7 +144,7 @@ class WaterCrystal(Item):
     def name(cls) -> str:
         return 'Water Crystal'
 
-    def can_use(self, context) -> bool:
+    def can_use(self, context) -> tuple[bool, str]:
         familiar = context.familiar
         if familiar.is_hp_at_max() and familiar.is_mp_at_max():
             return False, 'Your HP and MP are already at max.'

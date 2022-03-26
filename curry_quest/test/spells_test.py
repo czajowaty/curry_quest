@@ -1,13 +1,16 @@
-from unittest.mock import Mock, PropertyMock, create_autospec, patch
+from unittest.mock import Mock, create_autospec, patch
 from curry_quest.config import Config
 from curry_quest.genus import Genus
-from curry_quest.spell import Spell
+from curry_quest.levels_config import Levels
+from curry_quest.spell_handler import SpellHandler
 from curry_quest.spells_descriptor import create_spells_traits
 from curry_quest.state_machine_context import StateMachineContext
 from curry_quest.stats_calculator import StatsCalculator
 from curry_quest.statuses import Statuses
 from curry_quest.talents import Talents
-from curry_quest.traits import CastSpellHandler, SpellTraits, SpellCastContext, UnitTraits
+from curry_quest.spell_traits import SpellTraits
+from curry_quest.spell_cast_unit_action import SpellCastContext, SpellCastActionHandler
+from curry_quest.unit_traits import UnitTraits
 from curry_quest.unit import Unit
 import functools
 import random
@@ -35,15 +38,15 @@ class SpellTestBase(unittest.TestCase):
     def setUp(self):
         self._spell_base_name, genus = self._spell_selector()
         self._spell_traits: SpellTraits = SPELLS_TRAITS[self._spell_base_name][genus]
-        self._spell_cast_context = SpellCastContext()
+        self._spell_cast_context = SpellCastContext(spell_level=1)
         self._caster_traits = UnitTraits()
-        self._caster_levels = Config.Levels()
+        self._caster_levels = Levels()
         self._caster = Unit(self._caster_traits, self._caster_levels)
         self._caster.genus = genus
         self._caster.set_spell(self._spell_traits, level=1)
-        self._spell_cast_context.caster = self._caster
+        self._spell_cast_context.performer = self._caster
         self._target_traits = UnitTraits()
-        self._target_levels = Config.Levels()
+        self._target_levels = Levels()
         self._target = Unit(self._target_traits, self._target_levels)
         self._spell_cast_context.target = self._target
         self._game_config = Config()
@@ -53,11 +56,11 @@ class SpellTestBase(unittest.TestCase):
         self._state_machine_context.does_action_succeed = self._does_action_succeed_mock
         self._rng_mock = Mock(spec=random.Random)
         self._rng_mock.randint.return_value = 0
-        type(self._state_machine_context).rng = PropertyMock(return_value=self._rng_mock)
+        self._state_machine_context._rng = self._rng_mock
         self._spell_cast_context.state_machine_context = self._state_machine_context
 
     def _cast_handler(self):
-        return self._spell_traits.cast_handler
+        return self._spell_traits.handler
 
     def _call_select_target(self, caster, other_unit):
         return self._cast_handler().select_target(caster, other_unit)
@@ -81,7 +84,7 @@ class SpellTestBase(unittest.TestCase):
         self.assertEqual(self._spell_traits.mp_cost, self._MP_COST)
 
     def _set_spell_level(self, spell_level):
-        self._caster.set_spell(self._caster.spell.traits, spell_level)
+        self._spell_cast_context.spell_level = spell_level
 
 
 class NativeFireSpellTester:
@@ -1394,57 +1397,57 @@ class LoGraveTest(SpellTestBase, GraveTester):
 
 
 class ReflectTest(unittest.TestCase):
-    class TestSpellCastHandler(CastSpellHandler):
+    class TestSpellCastHandler(SpellCastActionHandler):
         def select_target(self, caster, other_unit):
-            CastSpellHandler.select_target(self, caster, other_unit)
+            SpellCastActionHandler.select_target(self, caster, other_unit)
 
         def can_cast(self, spell_cast_context: SpellCastContext):
             return True, ''
 
         def cast(self, spell_cast_context: SpellCastContext):
-            CastSpellHandler.cast(self, spell_cast_context)
+            SpellCastActionHandler.cast(self, spell_cast_context)
 
     def setUp(self):
-        self._familiar = Unit(UnitTraits(), Config.Levels())
+        self._familiar = Unit(UnitTraits(), Levels())
         self._familiar.name = 'familiar'
-        self._enemy = Unit(UnitTraits(), Config.Levels())
+        self._enemy = Unit(UnitTraits(), Levels())
         self._enemy.name = 'enemy'
-        self._spell_cast_handler = create_autospec(spec=CastSpellHandler)
+        self._spell_handler = create_autospec(spec=SpellHandler)
         self._state_machine_context = StateMachineContext(Config())
         self._state_machine_context.familiar = self._familiar
         self._spell_traits = SpellTraits()
         self._spell_traits.name = 'test_spell'
-        self._spell_traits.cast_handler = self._spell_cast_handler
-        self._spell_cast_context = SpellCastContext()
-        self._spell_cast_context.caster = self._familiar
+        self._spell_traits.handler = self._spell_handler
+        self._spell_cast_context = SpellCastContext(spell_level=1)
+        self._spell_cast_context.performer = self._familiar
         self._spell_cast_context.target = self._enemy
-        self._spell_cast_context.other_than_target = self._familiar
+        self._spell_cast_context.reflected_target = self._familiar
         self._spell_cast_context.state_machine_context = self._state_machine_context
-        self._spell = Spell(self._spell_traits)
+        self._spell_cast_action_handler = SpellCastActionHandler(self._spell_traits)
 
-    def _test_spell_cast(self, caster=None, target=None, other_than_target=None, spell_cast_response: str=''):
+    def _test_spell_cast(self, caster=None, target=None, reflected_target=None, spell_cast_response: str=''):
         recorded_caster = None
         recorded_target = None
 
         def record_caster_and_target(spell_cast_context: SpellCastContext):
             nonlocal recorded_caster
             nonlocal recorded_target
-            recorded_caster = spell_cast_context.caster
+            recorded_caster = spell_cast_context.performer
             recorded_target = spell_cast_context.target
             return spell_cast_response
 
-        self._spell_cast_context.caster = caster or self._familiar
+        self._spell_cast_context.performer = caster or self._familiar
         self._spell_cast_context.target = target or self._enemy
-        self._spell_cast_context.other_than_target = other_than_target or self._familiar
-        self._spell_cast_handler.select_target.return_value = target
-        self._spell_cast_handler.cast.side_effect = record_caster_and_target
-        response = self._spell.cast(self._spell_cast_context)
+        self._spell_cast_context.reflected_target = reflected_target or self._familiar
+        self._spell_handler.select_target.return_value = target
+        self._spell_handler.cast.side_effect = record_caster_and_target
+        response = self._spell_cast_action_handler.perform(self._spell_cast_context)
         return response, recorded_caster, recorded_target
 
     def _test_spell_reflect(self, caster_genus: Genus, target_status: Statuses, is_reflected: bool):
         self._familiar.genus = caster_genus
         self._enemy.set_status(target_status)
-        response, caster, target = self._test_spell_cast(target=self._enemy, other_than_target=self._familiar)
+        response, caster, target = self._test_spell_cast(target=self._enemy, reflected_target=self._familiar)
         self.assertIs(caster, self._familiar)
         self.assertIs(target, self._familiar if is_reflected else self._enemy)
         return response
@@ -1490,7 +1493,7 @@ class ReflectTest(unittest.TestCase):
         response, _, _ = self._test_spell_cast(
             caster=caster,
             target=target,
-            other_than_target=self._enemy if self._familiar is target else self._familiar,
+            reflected_target=self._enemy if self._familiar is target else self._familiar,
             spell_cast_response=spell_cast_response)
         return response
 
