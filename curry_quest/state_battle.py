@@ -51,10 +51,7 @@ class StateBattleEvent(StateBase):
     def _parse_args(cls, context, args):
         if len(args) == 0:
             return ()
-        monster_name = args[0]
-        if monster_name not in context.game_config.monsters_traits.keys():
-            raise cls.ArgsParseError('Unknown monster')
-        monster_traits = context.game_config.monsters_traits[monster_name]
+        monster_traits = cls._find_monster_traits(args[0], context)
         monster_level = 0
         if len(args) > 1:
             try:
@@ -62,6 +59,13 @@ class StateBattleEvent(StateBase):
             except ValueError:
                 raise cls.ArgsParseError('Monster level is not a number')
         return monster_traits, monster_level
+
+    @classmethod
+    def _find_monster_traits(cls, monster_name, context: StateMachineContext):
+        for known_monster_name, monster_traits in context.game_config.monsters_traits.items():
+            if known_monster_name.lower() == monster_name.lower():
+                return monster_traits
+        raise cls.ArgsParseError('Unknown monster')
 
 
 class StateBattleBase(StateBase):

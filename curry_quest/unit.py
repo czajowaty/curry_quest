@@ -330,8 +330,12 @@ class Unit(Jsonable):
         self._spell_traits = None
         self._spell_level = 0
 
+    @property
+    def spell_mp_cost(self):
+        return self.spell_traits.mp_cost
+
     def has_enough_mp_for_spell_cast(self) -> bool:
-        return self.has_enough_mp_for_action(self.spell_traits.mp_cost)
+        return self.has_enough_mp_for_action(self.spell_mp_cost)
 
     def has_ability(self) -> bool:
         return False
@@ -484,7 +488,7 @@ class Unit(Jsonable):
         if self.has_any_status():
             s += f', statuses: {self._statuses_to_string()}'
         if self.has_spell():
-            s += f', spell: LVL {self.spell.level} {self.spell.traits.name} (MP cost: {self.spell_mp_cost})'
+            s += f', spell: LVL {self.spell_level} {self.spell_traits.name} (MP cost: {self.spell_mp_cost})'
         s += f', EXP: {self.exp}'
         if not self.is_max_level():
             s += f' ({self.experience_for_next_level() - self.exp} more EXP to next LVL)'
