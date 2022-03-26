@@ -1,4 +1,5 @@
 from curry_quest.errors import InvalidOperation
+from curry_quest.genus import Genus
 from curry_quest.jsonable import InvalidJson, Jsonable, JsonReaderHelper
 
 
@@ -28,7 +29,17 @@ class Item(Jsonable):
         return normalize_item_name(cls.name).startswith(normalize_item_name(item_name_parts))
 
     def can_use(self, context) -> tuple[bool, str]:
-        raise NotImplementedError(f'{self.__class__.__name__}.{self.can_use}')
+        reason = self._cannot_use_reason(context)
+        return (False, reason) if reason else (True, '')
+
+    def _cannot_use_reason(self, context) -> str:
+        raise NotImplementedError(f'{self.__class__.__name__}.{self._cannot_use_reason}')
+
+    def _cannot_use_value(self, reason: str):
+        return False, reason
+
+    def _can_use_value(self):
+        return True, ''
 
     def use(self, context) -> str:
         can_use, reason = self.can_use(context)
@@ -47,11 +58,9 @@ class Pita(Item):
     def name(cls) -> str:
         return 'Pita'
 
-    def can_use(self, context) -> tuple[bool, str]:
+    def _cannot_use_reason(self, context) -> str:
         if context.familiar.is_mp_at_max():
-            return False, 'Your MP is already at max.'
-        else:
-            return True, ''
+            return 'Your MP is already at max.'
 
     def _use(self, context) -> str:
         context.familiar.restore_mp()
@@ -59,13 +68,11 @@ class Pita(Item):
 
 
 class BattlePhaseOnlyItem(Item):
-    def can_use(self, context) -> tuple[bool, str]:
+    def _cannot_use_reason(self, context) -> str:
         if not context.is_in_battle():
-            return False, 'You are not in combat.'
+            return 'You are not in combat.'
         elif context.battle_context.is_prepare_phase():
-            return False, 'Combat has not started yet.'
-        else:
-            return True, ''
+            return 'Combat has not started yet.'
 
 
 class Oleem(BattlePhaseOnlyItem):
@@ -96,11 +103,9 @@ class MedicinalHerb(Item):
     def name(cls) -> str:
         return 'Medicinal Herb'
 
-    def can_use(self, context) -> tuple[bool, str]:
+    def _cannot_use_reason(self, context) -> str:
         if context.familiar.is_hp_at_max():
-            return False, 'Your HP is already at max.'
-        else:
-            return True, ''
+            return 'Your HP is already at max.'
 
     def _use(self, context) -> str:
         context.familiar.restore_hp()
@@ -113,11 +118,9 @@ class CureAllHerb(Item):
     def name(cls) -> str:
         return 'Cure-All Herb'
 
-    def can_use(self, context) -> tuple[bool, str]:
+    def _cannot_use_reason(self, context) -> str:
         if not context.familiar.has_any_status():
-            return False, 'You do not have any statuses.'
-        else:
-            return True, ''
+            return 'You do not have any statuses.'
 
     def _use(self, context) -> str:
         context.familiar.clear_statuses()
@@ -135,7 +138,7 @@ class FireBall(BattlePhaseOnlyItem):
         enemy = context.battle_context.enemy
         enemy.deal_damage(damage)
         return f'Flames spew forth from the {self.name} dealing {damage} damage. ' \
-            f'{enemy.name} has {enemy.hp} HP left.'
+            f'{enemy.name.capitalize()} has {enemy.hp} HP left.'
 
 
 class WaterCrystal(Item):
@@ -144,18 +147,40 @@ class WaterCrystal(Item):
     def name(cls) -> str:
         return 'Water Crystal'
 
-    def can_use(self, context) -> tuple[bool, str]:
+    def _cannot_use_reason(self, context) -> str:
         familiar = context.familiar
         if familiar.is_hp_at_max() and familiar.is_mp_at_max():
-            return False, 'Your HP and MP are already at max.'
-        else:
-            return True, ''
+            return 'Your HP and MP are already at max.'
 
     def _use(self, context) -> str:
         familiar = context.familiar
         familiar.restore_hp()
         familiar.restore_mp()
         return 'Your HP and MP have been restored to max.'
+
+
+def create_genus_seed_class(name: str, genus: Genus):
+    class GenusSeed(Item):
+        @classmethod
+        @property
+        def name(cls) -> str:
+            return f'{name} Seed'
+
+        def _cannot_use_reason(self, context) -> str:
+            familiar = context.familiar
+            if familiar.genus == genus:
+                return f'Your genus is already {genus.name}.'
+
+        def _use(self, context) -> str:
+            context.familiar.genus = genus
+            return f'Your genus changed to {genus.name}.'
+
+    return GenusSeed
+
+
+LightSeed = create_genus_seed_class('Light', Genus.Fire)
+SeaSeed = create_genus_seed_class('Sea', Genus.Water)
+WindSeed = create_genus_seed_class('Wind', Genus.Wind)
 
 
 class ItemJsonLoader:
@@ -170,4 +195,7 @@ class ItemJsonLoader:
 
 
 def all_items():
-    return [Pita(), Oleem(), HolyScroll(), MedicinalHerb(), CureAllHerb(), FireBall(), WaterCrystal()]
+    return [
+        Pita(), Oleem(), HolyScroll(), MedicinalHerb(), CureAllHerb(), FireBall(), WaterCrystal(), LightSeed(),
+        SeaSeed(), WindSeed()
+    ]
