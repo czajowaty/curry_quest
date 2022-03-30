@@ -73,14 +73,30 @@ class PhysicalAttackUnitActionHandlerTest(unittest.TestCase):
             self._test_can_perform_response(performer=self._enemy),
             'Monster does not have enough MP.')
 
+    def _call_perform(self):
+        return self._sut.perform(self._unit_action_context)
+
     def _test_perform_action(self, performer=None, target=None, other_than_target=None):
         self._unit_action_context.performer = performer or self._familiar
         self._unit_action_context.target = target or self._enemy
-        return self._sut.perform(self._unit_action_context)
+        return self._call_perform()
 
     def _test_attack_miss(self, performer, target):
         performer.luck = 0
         return self._test_perform_action(performer, target)
+
+    def test_response_on_no_target_familiar_attack(self):
+        self._unit_action_context.performer = self._familiar
+        self._unit_action_context.target = None
+        response = self._call_perform()
+        self.assertEqual(response, 'You attack in opposite direction hitting nothing but air.')
+
+    def test_response_on_no_target_enemy_attack(self):
+        self._enemy.name = 'monster'
+        self._unit_action_context.performer = self._enemy
+        self._unit_action_context.target = None
+        response = self._call_perform()
+        self.assertEqual(response, 'Monster attacks in opposite direction hitting nothing but air.')
 
     def test_when_attacker_has_0_luck_attack_misses(self):
         self._enemy.hp = 25
@@ -229,7 +245,7 @@ class PhysicalAttackUnitActionHandlerTest(unittest.TestCase):
             expected_response=response,
             **kwargs)
 
-    def _test_enemy_attack_response(self, response, **kwargs):
+    def _test_enemy_attack_response(self, response, defender=None, **kwargs):
         return self._test_attack_response(
             attacker=self._enemy,
             defender=self._familiar,

@@ -1,6 +1,7 @@
-from curry_quest.errors import InvalidOperation
+from abc import abstractmethod
 from curry_quest.genus import Genus
 from curry_quest.jsonable import InvalidJson, Jsonable, JsonReaderHelper
+from curry_quest.unit_action import UnitActionContext
 
 
 def normalize_item_name(*item_name_parts: str):
@@ -21,6 +22,18 @@ class Item(Jsonable):
         raise NotImplementedError(f'{cls.__name__}.name')
 
     @classmethod
+    @abstractmethod
+    def select_target(cls, familiar, enemy): pass
+
+    @classmethod
+    @abstractmethod
+    def can_target_familiar(cls) -> bool: pass
+
+    @classmethod
+    @abstractmethod
+    def can_target_enemy(cls) -> bool: pass
+
+    @classmethod
     def matches_normalized_name(cls, normalized_item_name):
         return normalize_item_name(cls.name).startswith(normalized_item_name)
 
@@ -28,152 +41,201 @@ class Item(Jsonable):
     def matches_name(cls, *item_name_parts):
         return normalize_item_name(cls.name).startswith(normalize_item_name(item_name_parts))
 
-    def can_use(self, context) -> tuple[bool, str]:
-        reason = self._cannot_use_reason(context)
-        return (False, reason) if reason else (True, '')
+    @abstractmethod
+    def cannot_use_reason(self, context: UnitActionContext) -> str: pass
 
-    def _cannot_use_reason(self, context) -> str:
-        raise NotImplementedError(f'{self.__class__.__name__}.{self._cannot_use_reason}')
-
-    def _cannot_use_value(self, reason: str):
-        return False, reason
-
-    def _can_use_value(self):
-        return True, ''
-
-    def use(self, context) -> str:
-        can_use, reason = self.can_use(context)
-        if not can_use:
-            raise InvalidOperation(f'Cannot use {self.name}. {reason}')
-        effect = self._use(context)
-        return f"You used the {self.name}. {effect}"
-
-    def _use(self, context) -> str:
-        raise NotImplementedError(f"{self.__class__.__name__}.{self.use}")
+    @abstractmethod
+    def use(self, context: UnitActionContext) -> str: pass
 
 
-class Pita(Item):
+class DefaultFamiliarTargetItem(Item):
+    @classmethod
+    def select_target(cls, familiar, enemy):
+        return familiar
+
+
+class DefaultEnemyTargetItem(Item):
+    @classmethod
+    def select_target(cls, familiar, enemy):
+        return enemy
+
+
+class NoDefaultTargetItem(Item):
+    @classmethod
+    def select_target(cls, familiar, enemy):
+        return None
+
+
+class FamiliarOnlyItem(DefaultFamiliarTargetItem):
+    @classmethod
+    def can_target_familiar(cls) -> bool:
+        return True
+
+    @classmethod
+    def can_target_enemy(cls) -> bool:
+        return False
+
+
+class EnemyOnlyItem(DefaultEnemyTargetItem):
+    @classmethod
+    def can_target_familiar(cls) -> bool:
+        return False
+
+    @classmethod
+    def can_target_enemy(cls) -> bool:
+        return True
+
+
+class FamiliarAndEnemyItem(Item):
+    @classmethod
+    def can_target_familiar(cls) -> bool:
+        return True
+
+    @classmethod
+    def can_target_enemy(cls) -> bool:
+        return True
+
+
+class Pita(FamiliarOnlyItem):
     @classmethod
     @property
     def name(cls) -> str:
         return 'Pita'
 
-    def _cannot_use_reason(self, context) -> str:
-        if context.familiar.is_mp_at_max():
-            return 'Your MP is already at max.'
+    @classmethod
+    def select_target(cls, familiar, enemy):
+        return familiar
 
-    def _use(self, context) -> str:
-        context.familiar.restore_mp()
-        return 'Your MP has been restored to max.'
+    def cannot_use_reason(self, context: UnitActionContext) -> str:
+        pass
+
+    def use(self, context: UnitActionContext) -> str:
+        target = context.target
+        target_words = context.target_words
+        if target.is_mp_at_max():
+            target.max_mp += 1
+            response = f'{target_words.possessive_name.capitalize()} max MP has increased.'
+        else:
+            response = f'{target_words.possessive_name.capitalize()} MP has been restored to max.'
+        target.restore_mp()
+        return response
 
 
 class BattlePhaseOnlyItem(Item):
-    def _cannot_use_reason(self, context) -> str:
-        if not context.is_in_battle():
+    def cannot_use_reason(self, context: UnitActionContext) -> str:
+        if not context.state_machine_context.is_in_battle():
             return 'You are not in combat.'
-        elif context.battle_context.is_prepare_phase():
+        elif context.state_machine_context.battle_context.is_prepare_phase():
             return 'Combat has not started yet.'
 
 
-class Oleem(BattlePhaseOnlyItem):
+class Oleem(BattlePhaseOnlyItem, EnemyOnlyItem):
     @classmethod
     @property
     def name(cls) -> str:
         return 'Oleem'
 
-    def _use(self, context) -> bool:
-        context.battle_context.finish_battle()
+    def use(self, context: UnitActionContext) -> bool:
+        context.state_machine_context.battle_context.finish_battle()
         return 'The enemy vanished!'
 
 
-class HolyScroll(BattlePhaseOnlyItem):
+class HolyScroll(BattlePhaseOnlyItem, FamiliarOnlyItem):
     @classmethod
     @property
     def name(cls) -> str:
         return 'Holy Scroll'
 
-    def _use(self, context) -> str:
-        context.battle_context.set_holy_scroll_counter(3)
+    def use(self, context: UnitActionContext) -> str:
+        context.state_machine_context.battle_context.set_holy_scroll_counter(3)
         return 'You are invulnerable for the next 3 turns.'
 
 
-class MedicinalHerb(Item):
+class MedicinalHerb(FamiliarAndEnemyItem, DefaultFamiliarTargetItem):
     @classmethod
     @property
     def name(cls) -> str:
         return 'Medicinal Herb'
 
-    def _cannot_use_reason(self, context) -> str:
-        if context.familiar.is_hp_at_max():
-            return 'Your HP is already at max.'
+    def cannot_use_reason(self, context: UnitActionContext) -> str:
+        pass
 
-    def _use(self, context) -> str:
-        context.familiar.restore_hp()
-        return 'Your HP has been restored to max.'
+    def use(self, context: UnitActionContext) -> str:
+        target = context.target
+        target_words = context.target_words
+        if target.is_hp_at_max():
+            target.max_hp += 1
+            response = f'{target_words.possessive_name.capitalize()} max HP has increased.'
+        else:
+            response = f'{target_words.possessive_name.capitalize()} HP has been restored to max.'
+        target.restore_hp()
+        target.mp += 3
+        return response
 
 
-class CureAllHerb(Item):
+class CureAllHerb(FamiliarAndEnemyItem, DefaultFamiliarTargetItem):
     @classmethod
     @property
     def name(cls) -> str:
         return 'Cure-All Herb'
 
-    def _cannot_use_reason(self, context) -> str:
-        if not context.familiar.has_any_status():
-            return 'You do not have any statuses.'
+    def cannot_use_reason(self, context: UnitActionContext) -> str:
+        pass
 
-    def _use(self, context) -> str:
-        context.familiar.clear_statuses()
-        return 'All statuses have been restored.'
+    def use(self, context: UnitActionContext) -> str:
+        target_words = context.target_words
+        target = context.target
+        target.clear_statuses()
+        target.mp += 3
+        return f'{target_words.possessive_name.capitalize()} statuses have been cleared.'
 
 
-class FireBall(BattlePhaseOnlyItem):
+class FireBall(BattlePhaseOnlyItem, EnemyOnlyItem):
     @classmethod
     @property
     def name(cls) -> str:
         return 'Fire Ball'
 
-    def _use(self, context) -> str:
-        damage = context.battle_context.enemy.max_hp // 2
-        enemy = context.battle_context.enemy
+    def use(self, context: UnitActionContext) -> str:
+        enemy = context.state_machine_context.battle_context.enemy
+        damage = enemy.max_hp // 2
         enemy.deal_damage(damage)
         return f'Flames spew forth from the {self.name} dealing {damage} damage. ' \
             f'{enemy.name.capitalize()} has {enemy.hp} HP left.'
 
 
-class WaterCrystal(Item):
+class WaterCrystal(FamiliarOnlyItem):
     @classmethod
     @property
     def name(cls) -> str:
         return 'Water Crystal'
 
-    def _cannot_use_reason(self, context) -> str:
-        familiar = context.familiar
-        if familiar.is_hp_at_max() and familiar.is_mp_at_max():
-            return 'Your HP and MP are already at max.'
+    def cannot_use_reason(self, context: UnitActionContext) -> str:
+        pass
 
-    def _use(self, context) -> str:
-        familiar = context.familiar
+    def use(self, context: UnitActionContext) -> str:
+        familiar = context.state_machine_context.familiar
         familiar.restore_hp()
         familiar.restore_mp()
         return 'Your HP and MP have been restored to max.'
 
 
 def create_genus_seed_class(name: str, genus: Genus):
-    class GenusSeed(Item):
+    class GenusSeed(FamiliarAndEnemyItem, NoDefaultTargetItem):
         @classmethod
         @property
         def name(cls) -> str:
             return f'{name} Seed'
 
-        def _cannot_use_reason(self, context) -> str:
-            familiar = context.familiar
-            if familiar.genus == genus:
-                return f'Your genus is already {genus.name}.'
+        def cannot_use_reason(self, context: UnitActionContext) -> str:
+            pass
 
-        def _use(self, context) -> str:
-            context.familiar.genus = genus
-            return f'Your genus changed to {genus.name}.'
+        def use(self, context: UnitActionContext) -> str:
+            target = context.target
+            target.genus = genus
+            target.mp += 3
+            target_words = context.target_words
+            return f'{target_words.possessive_name.capitalize()} genus changed to {genus.name}.'
 
     return GenusSeed
 

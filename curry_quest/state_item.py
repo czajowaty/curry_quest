@@ -1,8 +1,10 @@
 from curry_quest import commands
+from curry_quest.item_use_unit_action import ItemUseActionHandler
 from curry_quest.items import Item, normalize_item_name, all_items
+from curry_quest.jsonable import JsonReaderHelper
 from curry_quest.state_base import StateBase
 from curry_quest.state_with_inventory_item import StateWithInventoryItem
-from curry_quest.jsonable import JsonReaderHelper
+from curry_quest.unit_action import UnitActionContext
 
 
 class StateItemEvent(StateBase):
@@ -67,27 +69,46 @@ class StateItemPickUpFullInventory(StateBase):
 
 
 class StateItemUse(StateBase):
+    class CannotUseItem(Exception):
+        pass
+
     def __init__(self, context, *item_name_parts):
         super().__init__(context)
         self._item_name = normalize_item_name(*item_name_parts)
 
     def on_enter(self):
+        try:
+            item, remove_item, next_command = self._select_item_descriptor()
+            action_handler, action_context = self._create_item_use_action(item)
+        except self.CannotUseItem as exc:
+            self._context.add_response(f"{exc}")
+            self._context.generate_action(commands.CANNOT_USE_ITEM)
+            return
+        response = action_handler.perform(action_context)
+        self._context.add_response(response)
+        remove_item()
+        self._context.generate_action(next_command)
+
+    def _select_item_descriptor(self):
         item_descriptor = self._found_item_descriptor()
         if item_descriptor is None:
             item_descriptor = self._inventory_item_descriptor()
         if item_descriptor is None:
-            self._context.add_response("You do not have such item in your inventory and it is not found item.")
-            self._context.generate_action(commands.CANNOT_USE_ITEM)
-            return
-        item, remove_item, next_command = item_descriptor
-        can_use, reason = item.can_use(self._context)
+            raise self.CannotUseItem('You do not have such item in your inventory and it is not found item.')
+        return item_descriptor
+
+    def _create_item_use_action(self, item) -> tuple[ItemUseActionHandler, UnitActionContext]:
+        def raise_cannot_use_item(reason):
+            raise self.CannotUseItem(f'Cannot use {item.name}. {reason}')
+
+        if not item.can_target_familiar():
+            raise_cannot_use_item('No valid target.')
+        action_handler, action_context = self._context.create_item_use_with_target(item, target=None)
+        action_context.target = self._context.familiar
+        can_use, reason = action_handler.can_perform(action_context)
         if not can_use:
-            self._context.add_response(f"Cannot use \"{item.name}\". {reason}")
-            self._context.generate_action(commands.CANNOT_USE_ITEM)
-            return
-        item.use(self._context)
-        remove_item()
-        self._context.generate_action(next_command)
+            raise_cannot_use_item(reason)
+        return action_handler, action_context
 
     def _found_item_descriptor(self):
         item = self._context.peek_buffered_item()

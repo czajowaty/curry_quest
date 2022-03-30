@@ -25,7 +25,7 @@ class Unit(Jsonable):
         self._traits = traits
         self._levels = levels
         self.name = traits.name
-        self.genus = traits.native_genus
+        self._genus = traits.native_genus
         self.level = self.MIN_LEVEL
         self._talents = traits.talents
         self.max_hp = traits.base_hp
@@ -134,7 +134,11 @@ class Unit(Jsonable):
 
     @genus.setter
     def genus(self, value: Genus):
+        from curry_quest.spells import Spells
+
         self._genus = value
+        if self.has_spell():
+            self._spell_traits = Spells.find_spell_traits(self._spell_traits.base_name, self.genus)
 
     @property
     def level(self):
@@ -374,7 +378,7 @@ class Unit(Jsonable):
     def fuse(self, other: '__class__'):
         self._talents = self.traits.talents | other.traits.talents
         if self.genus.is_weak_against(other.genus):
-            self._genus = other.genus
+            self.genus = other.genus
         self.hp = min(self.hp, self.max_hp)
         self.mp = (self.mp + other.mp) // 2
         self._handle_spell_on_fusion(other)
@@ -391,7 +395,11 @@ class Unit(Jsonable):
         from curry_quest.spells import Spells
 
         if other.has_spell():
-            return other._spell_traits
+            spell_traits = other.spell_traits
+            if other.genus == self.genus:
+                return spell_traits
+            else:
+                return Spells.find_spell_traits(spell_traits.base_name, self.genus)
         else:
             return Spells.find_spell_traits(self.traits.dormant_spell_base_name, self.genus)
 

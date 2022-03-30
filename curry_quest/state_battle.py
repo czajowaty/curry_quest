@@ -1,8 +1,9 @@
 from curry_quest import commands
 from curry_quest.jsonable import JsonReaderHelper
+from curry_quest.item_use_unit_action import ItemUseActionHandler
 from curry_quest.items import Item
 from curry_quest.state_base import StateBase
-from curry_quest.state_with_inventory_item import StateWithInventoryItem
+from curry_quest.state_with_inventory_item import StateWithInventoryItemAndTarget
 from curry_quest.stats_calculator import StatsCalculator
 from curry_quest.state_machine_context import BattleContext, StateMachineContext
 from curry_quest.statuses import Statuses
@@ -133,6 +134,7 @@ class StateBattlePreparePhase(StateBattleBase):
             elif self._prepare_phase_turn_used:
                 self._context.add_response("The enemy is close, but you still have time to prepare.")
         if not self._battle_context.is_prepare_phase():
+            self._context.familiar.clear_status(Statuses.Sleep)
             self._context.generate_action(commands.BATTLE_PREPARE_PHASE_FINISHED)
 
     def is_waiting_for_user_action(self) -> bool:
@@ -183,6 +185,8 @@ class StateBattlePhaseBase(StateBattleBase):
 
 
 class StateBattlePhase(StateBattlePhaseBase):
+    CONFUSED_PLAYER_ACTION_DELAY = 1
+
     def on_enter(self):
         if self._is_battle_finished():
             self._handle_battle_finished()
@@ -248,7 +252,12 @@ class StateBattlePhase(StateBattlePhaseBase):
         else:
             unit_to_act = self._acting_unit()
             if unit_to_act.has_status(Statuses.Confuse):
-                self._context.generate_action(commands.CONFUSED_UNIT_TURN)
+                if self._battle_context.is_player_turn:
+                    self._context.generate_delayed_action(
+                        self.CONFUSED_PLAYER_ACTION_DELAY,
+                        commands.CONFUSED_UNIT_TURN)
+                else:
+                    self._context.generate_action(commands.CONFUSED_UNIT_TURN)
             elif self._battle_context.is_player_turn:
                 self._context.generate_action(commands.PLAYER_TURN)
             else:
@@ -438,29 +447,41 @@ class StateBattleUseSpell(StateBattlePhaseBase):
             raise cls.PreConditionsNotMet(reason)
 
 
-class StateBattleUseItem(StateWithInventoryItem):
+class StateBattleUseItem(StateWithInventoryItemAndTarget):
     @property
     def _battle_context(self) -> BattleContext:
         return self._context.battle_context
 
     def on_enter(self):
         item = self._context.inventory.peek_item(self._item_index)
-        can_use, reason = item.can_use(self._context)
-        if not can_use:
-            command, args = self._handle_cannot_use_item(item, reason)
+        action_handler, action_context = self._context.create_item_use_with_target(item, self._target)
+        if action_context.target is None:
+            command, args = self._handle_no_target(item)
         else:
-            command, args = self._handle_can_use_item(item)
+            can_use, reason = action_handler.can_perform(action_context)
+            if not can_use:
+                command, args = self._handle_cannot_use_item(item, reason)
+            else:
+                command, args = self._handle_can_use_item(action_handler, action_context)
         self._context.generate_action(command, *args)
 
-    def _handle_cannot_use_item(self, item: Item, reason: str):
-        self._context.add_response(f"You cannot use {item.name}. {reason}")
+    def _handle_no_target(self, item: Item):
+        self._context.add_response(
+            f"You cannot use {item.name} without target. Add \"on self\" or \"on enemy\" to the command.")
+        return self._cannot_use_item_command()
+
+    def _cannot_use_item_command(self):
         if self._battle_context.is_prepare_phase():
             return commands.CANNOT_USE_ITEM_PREPARE_PHASE, (False, )
         else:
             return commands.CANNOT_USE_ITEM_BATTLE_PHASE, ()
 
-    def _handle_can_use_item(self, item: Item):
-        response = item.use(self._context)
+    def _handle_cannot_use_item(self, item: Item, reason: str):
+        self._context.add_response(f"You cannot use {item.name}. {reason}")
+        return self._cannot_use_item_command()
+
+    def _handle_can_use_item(self, action_handler: ItemUseActionHandler, action_context: UnitActionContext):
+        response = action_handler.perform(action_context)
         self._context.inventory.take_item(self._item_index)
         self._context.add_response(response)
         if self._battle_context.is_prepare_phase():
@@ -498,18 +519,34 @@ class StateBattleEnemyTurn(StateBattlePhaseBase):
             def perform_physical_attack():
                 self._perform_physical_attack(attacker=enemy, defender=familiar)
 
-            action = self._context.random_selection_with_weights(
-                {
-                    perform_physical_attack: self._calculate_unit_action_weight(
-                        has_action=True,
-                        create_action=self._context.create_physical_attack_with_target,
-                        can_perform_action_weight=self._action_weights.physical_attack),
-                    cast_spell: self._calculate_unit_action_weight(
-                        has_action=self._battle_context.enemy.has_spell(),
-                        create_action=self._context.create_spell_with_target,
-                        can_perform_action_weight=self._action_weights.spell)
-                })
-            action()
+            action_with_weights = {}
+            summed_actions_weights = 0
+            action_weight = self._calculate_unit_action_weight(
+                has_action=True,
+                create_action=self._context.create_physical_attack_with_target,
+                can_perform_action_weight=self._action_weights.physical_attack)
+            action_with_weights[perform_physical_attack] = action_weight
+            summed_actions_weights += action_weight
+            action_weight = self._calculate_unit_action_weight(
+                has_action=self._battle_context.enemy.has_spell(),
+                create_action=self._context.create_spell_with_target,
+                can_perform_action_weight=self._action_weights.spell)
+            summed_actions_weights += action_weight
+            if summed_actions_weights == 0:
+                self._context.add_response(f'{enemy.name.capitalize()} cannot do anything and skips a turn.')
+            else:
+                action = self._context.random_selection_with_weights(
+                    {
+                        perform_physical_attack: self._calculate_unit_action_weight(
+                            has_action=True,
+                            create_action=self._context.create_physical_attack_with_target,
+                            can_perform_action_weight=self._action_weights.physical_attack),
+                        cast_spell: self._calculate_unit_action_weight(
+                            has_action=self._battle_context.enemy.has_spell(),
+                            create_action=self._context.create_spell_with_target,
+                            can_perform_action_weight=self._action_weights.spell)
+                    })
+                action()
         self._context.generate_action(commands.BATTLE_ACTION_PERFORMED)
 
     @property
@@ -589,24 +626,17 @@ class StateBattleConfusedUnitTurn(StateBattlePhaseBase):
     def _use_item_action_descriptor(self):
         if not self.is_player_turn:
             return None
-        usable_items_list = self._prepare_usable_items_list()
-        if len(usable_items_list) == 0:
+        if self._context.inventory.is_empty():
             return None
 
         def action_handler(_):
-            item_index, item = self._context.rng.choice(usable_items_list)
-            self._context.inventory.take_item(item_index)
-            return item.use(self._context)
+            item_index = self._context._rng.randrange(0, self._context.inventory.size)
+            item = self._context.inventory.take_item(item_index)
+            item_use_action_handler, action_context = self._context.create_item_use_without_target(item)
+            self._fill_unit_action_context(action_context, item_use_action_handler)
+            return item_use_action_handler.perform(action_context)
 
         return action_handler, lambda: None
-
-    def _prepare_usable_items_list(self) -> list[Item]:
-        return [(item_index, item) for item_index, item in self._items_iterator() if item.can_use(self._context)[0]]
-
-    def _items_iterator(self):
-        inventory = self._context.inventory
-        for item_index in range(inventory.size):
-            yield item_index, inventory.peek_item(item_index)
 
     def _skip_turn_action_descriptor(self):
         def skip_turn(_):

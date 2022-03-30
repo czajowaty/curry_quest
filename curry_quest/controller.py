@@ -60,6 +60,7 @@ class Controller:
         self.set_response_event_handler(lambda _: None)
         self._player_state_machines: dict[int, StateMachine] = self._states_files_handler.load(self._game_config)
         for player_state_machine in self._player_state_machines.values():
+            player_state_machine.set_autonomous_action_result_handler(self._handle_action_result)
             self._set_records_events_handler(player_state_machine)
 
     def _set_records_events_handler(self, player_state_machine: StateMachine):
@@ -116,6 +117,9 @@ class Controller:
         if player_name is not None:
             player_state_machine.player_name = player_name
         responses = player_state_machine.on_action(action)
+        self._handle_action_result(player_id, responses)
+
+    def _handle_action_result(self, player_id: int, responses: list[str]):
         if len(responses) > 0:
             self._send_response(player_id, responses)
         self._save_player_state(player_id)
@@ -181,6 +185,8 @@ class Controller:
 
     def start_timers(self):
         self._start_event_timer()
+        for player_state_machine in self._player_state_machines.values():
+            player_state_machine.handle_delayed_action()
 
     def _stop_timers(self):
         self._cancel_timer(self._event_timer)

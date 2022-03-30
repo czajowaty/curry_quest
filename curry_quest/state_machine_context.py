@@ -1,7 +1,7 @@
 import jsonpickle
-import random
 from curry_quest.errors import InvalidOperation
 from curry_quest.inventory import Inventory
+from curry_quest.item_use_unit_action import ItemUseActionHandler
 from curry_quest.items import Item, ItemJsonLoader
 from curry_quest.jsonable import Jsonable, InvalidJson, JsonReaderHelper
 from curry_quest.physical_attack_unit_action import PhysicalAttackUnitActionHandler
@@ -14,6 +14,7 @@ from curry_quest.unit import Unit
 from curry_quest.unit_action import UnitActionContext
 from curry_quest.unit_creator import UnitCreator
 from curry_quest.unit_traits import UnitTraits
+from curry_quest.services import Services
 
 
 class BattleContext(Jsonable):
@@ -103,10 +104,11 @@ class StateMachineContext(Jsonable):
     RESPONSE_LINE_BREAK = '\n'
     MIN_FLOOR = 0
 
-    def __init__(self, game_config):
+    def __init__(self, game_config, services: Services=None):
         from curry_quest.config import Config
 
         self._game_config: Config = game_config
+        self._services = services or Services()
         self._records_events_handler: RecordsEventsHandler = EmptyRecordsEventsHandler()
         self._current_climb_records = Records()
         self._is_tutorial_done = False
@@ -117,7 +119,7 @@ class StateMachineContext(Jsonable):
         self._last_met_character = ''
         self._item_buffer = None
         self._unit_buffer = None
-        self._rng = random.Random()
+        self._rng = self._services.rng()
         self._responses = []
         self._generated_action = None
         self._floor_turns_counter = 0
@@ -141,7 +143,25 @@ class StateMachineContext(Jsonable):
             json_object['item_buffer'] = self._item_buffer.to_json_object()
         if self._unit_buffer is not None:
             json_object['unit_buffer'] = self._unit_buffer.to_json_object()
+        if self.has_action():
+            json_object['generated_action'] = self._generated_action_to_json_object()
         return json_object
+
+    def _generated_action_to_json_object(self):
+        delay, action = self._generated_action
+        if not self._does_action_have_trivial_args(action):
+            raise InvalidOperation(f'Action with non-trivial arguments cannot be converted to JSON - "{action}"')
+        return {
+            'delay': delay,
+            'command': action.command,
+            'args': action.args
+        }
+
+    def _does_action_have_trivial_args(self, action: StateMachineAction) -> bool:
+        for arg in action.args:
+            if not isinstance(arg, (int, str)):
+                return False
+        return True
 
     def from_json_object(self, json_object):
         json_reader_helper = JsonReaderHelper(json_object)
@@ -163,7 +183,21 @@ class StateMachineContext(Jsonable):
             self.buffer_unit(self.create_monster_from_json_object(json_object['unit_buffer']))
         self._rng.setstate(jsonpickle.decode(json_reader_helper.read_string('rng_state')))
         self._responses = json_reader_helper.read_list('responses')
+        generated_action_json_object = json_reader_helper.read_optional_value_of_type('generated_action', dict)
+        if generated_action_json_object is not None:
+            self._read_generated_action_from_json_object(generated_action_json_object)
         self._floor_turns_counter = json_reader_helper.read_int_with_min('floor_turns_counter', min_value=0)
+
+    def _read_generated_action_from_json_object(self, json_object):
+        json_reader_helper = JsonReaderHelper(json_object)
+        delay = json_reader_helper.read_int_with_min('delay', min_value=0)
+        command = json_reader_helper.read_non_empty_string('command')
+        args = json_reader_helper.read_list('args')
+        self.generate_delayed_action(delay, command, *args)
+
+    @property
+    def services(self) -> Services:
+        return self._services
 
     @property
     def records_events_handler(self):
@@ -325,14 +359,23 @@ class StateMachineContext(Jsonable):
         enemy_traits.talents &= ~(Talents.StrengthIncreased | Talents.Hard)
 
     def generate_action(self, command, *args):
+        self._generate_action(0, command, *args)
+
+    def generate_delayed_action(self, delay, command, *args):
+        self._generate_action(delay, command, *args)
+        _, action = self._generated_action
+        if not self._does_action_have_trivial_args(action):
+            raise InvalidOperation(f'Cannot generate delayed action with non-trivial arguments - "{action}"')
+
+    def _generate_action(self, delay, command, *args):
         if self._generated_action is not None:
             raise InvalidOperation(f'Already generated - {self._generated_action}')
-        self._generated_action = StateMachineAction(command, args, is_given_by_admin=True)
+        self._generated_action = (delay, StateMachineAction.by_admin(command, *args))
 
     def has_action(self) -> bool:
         return self._generated_action is not None
 
-    def take_action(self) -> StateMachineAction:
+    def take_action(self) -> tuple[int, StateMachineAction]:
         action = self._generated_action
         self._generated_action = None
         return action
@@ -413,4 +456,21 @@ class StateMachineContext(Jsonable):
     def _create_action_with_target(self, create_action_without_target, performer, other_unit):
         action_handler, action_context = create_action_without_target(performer)
         action_context.target = action_handler.select_target(performer, other_unit)
+        return action_handler, action_context
+
+    def create_item_use_without_target(self, item: Item) -> tuple[ItemUseActionHandler, UnitActionContext]:
+        action_handler = ItemUseActionHandler(item)
+        action_context = UnitActionContext()
+        action_context.performer = self._familiar
+        action_context.state_machine_context = self
+        return action_handler, action_context
+
+    def create_item_use_with_target(self, item: Item, target: Unit):
+        action_handler, action_context = self.create_item_use_without_target(item)
+        if target is None:
+            action_context.target = action_handler.select_target(
+                self._familiar,
+                self.battle_context.enemy if self.is_in_battle() else None)
+        else:
+            action_context.target = target
         return action_handler, action_context

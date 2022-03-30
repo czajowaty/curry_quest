@@ -6,3 +6,11 @@ class StateMachineAction:
 
     def __str__(self):
         return f"{self.command}{self.args} [ADMIN: {self.is_given_by_admin}]"
+
+    @classmethod
+    def by_user(cls, command: str, *args):
+        return cls(command, args, is_given_by_admin=False)
+
+    @classmethod
+    def by_admin(cls, command: str, *args):
+        return cls(command, args, is_given_by_admin=True)

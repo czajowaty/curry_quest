@@ -1,9 +1,6 @@
 import unittest
 from unittest.mock import Mock, PropertyMock, call, create_autospec, patch
 from curry_quest import commands
-from curry_quest.config import Config
-from curry_quest.errors import InvalidOperation
-from curry_quest.items import Item
 from curry_quest.levels_config import Levels
 from curry_quest.physical_attack_unit_action import PhysicalAttackUnitActionHandler
 from curry_quest.spell_cast_unit_action import SpellCastContext
@@ -12,13 +9,13 @@ from curry_quest.spell_traits import SpellTraits
 from curry_quest.state_battle import StateBattleEvent, StateStartBattle, StateBattlePreparePhase, StateBattleApproach, \
     StateBattlePhase, StateEnemyStats, StateBattleSkipTurn, StateBattleAttack, StateBattleUseSpell, \
     StateBattleUseItem, StateBattleTryToFlee, StateBattleEnemyTurn, StateBattleConfusedUnitTurn
-from curry_quest.state_machine_context import StateMachineContext
 from curry_quest.statuses import Statuses
 from curry_quest.talents import Talents
 from curry_quest.unit import Unit
 from curry_quest.unit_action import UnitActionContext
 from curry_quest.unit_traits import UnitTraits
-from random import Random
+from dummy_item import DummyItem
+from state_test_base import StateTestBase
 
 
 def create_action_handler_mock(action_handler_mock_class, original_select_target, action_response):
@@ -36,71 +33,10 @@ def create_physical_attack_handler_mock(action_handler_mock_class, action_respon
     return create_action_handler_mock(action_handler_mock_class, original_select_target, action_response)
 
 
-class StateBattleTestBase(unittest.TestCase):
+class StateBattleTestBase(StateTestBase):
     def setUp(self):
-        self._game_config = Config()
-        for level in range(100):
-            self._game_config.levels.add_level(level * 10)
-        self._context = StateMachineContext(self._game_config)
-        self._rng = Mock()
-        self._rng.getstate.return_value = Random().getstate()
-        self._context._rng = self._rng
-        self._context.random_selection_with_weights = Mock(side_effect=self._select_key_with_greatest_value)
-        self._responses = []
-        self._context.add_response = Mock(side_effect=lambda response: self._responses.append(response))
-        self._context.generate_action = Mock()
-        self._familiar_unit_traits = UnitTraits()
-        self._familiar = Unit(self._familiar_unit_traits, Levels())
-        self._familiar.name = 'Familiar'
+        super().setUp()
         self._familiar.hp = 1
-        self._context.familiar = self._familiar
-
-    def _select_key_with_greatest_value(self, d):
-        selected_key, greatest_value = next(iter(d.items()))
-        for key, value in d.items():
-            if value > greatest_value:
-                selected_key = key
-                greatest_value = value
-        return selected_key
-
-    def _test_on_enter(self, *args):
-        state = self._create_state(*args)
-        state.on_enter()
-        return state
-
-    def _create_state(self, *args):
-        return self._state_class().create(self._context, args)
-
-    @classmethod
-    def _state_class(cls):
-        pass
-
-    def _test_create_state_failure(self, *args):
-        with self.assertRaises(InvalidOperation) as cm:
-            self._create_state(*args)
-        return cm.exception.args[0]
-
-    def _assert_action(self, action, *args, **kwargs):
-        self._context.generate_action.assert_called_once_with(action, *args, **kwargs)
-
-    def _assert_actions(self, *calls):
-        self._context.generate_action.assert_has_calls(calls)
-
-    def _assert_responses(self, *responses):
-        self.assertEqual(self._responses, list(responses))
-
-    def _assert_any_response(self, response):
-        try:
-            self._responses.index(response)
-        except ValueError:
-            self.fail(f'No response "{response}"')
-
-    def _assert_does_not_have_response(self, response):
-        try:
-            self._responses.index(response)
-            self.fail(f'Response "{response}" exists.')
-        except ValueError:
-            pass
 
 
 class StateBattleEventTest(StateBattleTestBase):
@@ -215,6 +151,18 @@ class StateBattlePreparePhaseTest(StateBattleStartedTestBase):
         self._set_prepare_phase_finished_after_next_turn()
         self._test_on_enter()
         self._assert_action(commands.BATTLE_PREPARE_PHASE_FINISHED)
+
+    def test_when_prepare_phase_is_finished_then_familiar_sleep_status_is_cleared(self):
+        self._familiar.set_status(Statuses.Sleep)
+        self._set_prepare_phase_finished_after_next_turn()
+        self._test_on_enter()
+        self.assertFalse(self._familiar.has_status(Statuses.Sleep))
+
+    def test_when_prepare_phase_is_finished_then_familiar_non_sleep_statuses_are_not_cleared(self):
+        self._familiar.set_status(~Statuses.Sleep)
+        self._set_prepare_phase_finished_after_next_turn()
+        self._test_on_enter()
+        self.assertTrue(self._familiar.has_status(~Statuses.Sleep))
 
     def test_when_prepare_phase_is_not_finished_then_battle_prepare_phase_finished_action_is_not_generated(self):
         self._set_prepare_phase_not_finished_after_next_turn()
@@ -332,7 +280,7 @@ class StateBattlePhaseTest(StateBattleStartedTestBase):
     def test_action_after_enemy_turn_when_player_is_confused(self):
         self._familiar.set_status(Statuses.Confuse)
         self._test_battle_not_finished(is_first_turn=False, is_player_turn=False)
-        self._assert_action(commands.CONFUSED_UNIT_TURN)
+        self._assert_delayed_action(delay=1, action=commands.CONFUSED_UNIT_TURN)
 
     def test_action_after_enemy_turn_when_enemy_is_confused(self):
         self._enemy.set_status(Statuses.Confuse)
@@ -824,21 +772,48 @@ class StateBattleUseItemTest(StateBattleStartedTestBase):
         super().setUp()
         self._inventory = Mock()
         self._context._inventory = self._inventory
-        self._item = Mock()
-        self._item.can_use.return_value = (True, '')
-        self._item.use.return_value = ''
+        self._item = create_autospec(spec=DummyItem)
+        self._item.select_target.return_value = self._familiar
+        self._item.cannot_use_reason.return_value = ''
         self._inventory.peek_item.return_value = self._item
+        self._target = None
 
-    def _test_on_enter(self, item_index=0, is_prepare_phase=True, can_use_item=True, reason=''):
+    def _test_on_enter(self, args=('',), item_index=0, is_prepare_phase=True, can_use_item=True, reason=''):
         self._inventory.find_item.return_value = (item_index, self._item)
         if is_prepare_phase:
             self._battle_context.start_prepare_phase(counter=2)
-        self._item.can_use.return_value = (can_use_item, reason)
-        return super()._test_on_enter('')
+        self._item.cannot_use_reason.return_value = '' if can_use_item else (reason if reason else 'REASON')
+        return super()._test_on_enter(*args)
 
     def test_item_is_fetched_from_correct_inventory_index(self):
         self._test_on_enter(item_index=2)
         self._inventory.peek_item.assert_called_once_with(2)
+
+    def _set_no_target_for_item(self):
+        self._item.select_target.return_value = None
+
+    def test_response_when_item_has_no_target(self):
+        self._set_no_target_for_item()
+        type(self._item).name = PropertyMock(return_value='ItemName')
+        self._test_on_enter(is_prepare_phase=True, can_use_item=True)
+        self._assert_responses('You cannot use ItemName without target. Add "on self" or "on enemy" to the command.')
+
+    def test_action_when_action_has_no_target_in_prepare_phase(self):
+        self._set_no_target_for_item()
+        self._test_on_enter(is_prepare_phase=True, can_use_item=True)
+        self._assert_action(commands.CANNOT_USE_ITEM_PREPARE_PHASE, False)
+
+    def test_action_when_action_has_no_target_in_battle_phase(self):
+        self._set_no_target_for_item()
+        self._test_on_enter(is_prepare_phase=False, can_use_item=True)
+        self._assert_action(commands.CANNOT_USE_ITEM_BATTLE_PHASE)
+
+    def test_item_cannot_use_reason_is_called_with_proper_context(self):
+        self._test_on_enter()
+        self._item.cannot_use_reason.assert_called()
+        action_context = self._item.cannot_use_reason.call_args.args[0]
+        self.assertIs(action_context.performer, self._familiar)
+        self.assertIs(action_context.state_machine_context, self._context)
 
     def test_response_when_item_cannot_be_used(self):
         type(self._item).name = PropertyMock(return_value='ItemName')
@@ -854,13 +829,30 @@ class StateBattleUseItemTest(StateBattleStartedTestBase):
         self._assert_action(commands.CANNOT_USE_ITEM_BATTLE_PHASE)
 
     def test_response_when_item_can_be_used(self):
+        type(self._item).name = PropertyMock(return_value='ITEM_NAME')
         self._item.use.return_value = 'Item used.'
         self._test_on_enter(can_use_item=True)
-        self._assert_responses('Item used.')
+        self._assert_responses('You used the ITEM_NAME. Item used.')
+
+    def _fetch_item_use_action_context(self) -> UnitActionContext:
+        self._item.use.assert_called_once()
+        return self._item.use.call_args.args[0]
 
     def test_item_is_used(self):
         self._test_on_enter(can_use_item=True)
-        self._item.use.assert_called_once_with(self._context)
+        action_context = self._fetch_item_use_action_context()
+        self.assertIs(action_context.performer, self._familiar)
+        self.assertIs(action_context.state_machine_context, self._context)
+
+    def test_when_item_target_is_familiar_then_it_is_used_on_familiar(self):
+        self._test_on_enter(args=('on', 'self', ''))
+        action_context = self._fetch_item_use_action_context()
+        self.assertIs(action_context.target, self._familiar)
+
+    def test_when_item_target_is_enemy_then_it_is_used_on_enemy(self):
+        self._test_on_enter(args=('on', 'enemy', ''))
+        action_context = self._fetch_item_use_action_context()
+        self.assertIs(action_context.target, self._enemy)
 
     def test_item_is_taken_from_inventory_when_used(self):
         self._test_on_enter(item_index=5, can_use_item=True)
@@ -1071,19 +1063,32 @@ class StateBattleEnemyTurnTest(StateBattleStartedTestBase):
         action_weights = self._test_enemy_action_selection(can_cast=True, spell_mp_cost=5)
         self.assertEqual(action_weights, self._create_action_weights_list(physical_attack=5, spell=10, ability=15))
 
+    def _call_on_enter_with_enemy_cannot_do_any_action(self):
+        spell_handler_mock = create_autospec(spec=SpellHandler)
+        spell_handler_mock.can_cast.return_value = False, ''
+        self._prepare_enemys_spell(spell_handler=spell_handler_mock)
+        with patch('curry_quest.state_machine_context.PhysicalAttackUnitActionHandler') as ActionHandlerMock:
+            attack_handler_mock = create_physical_attack_handler_mock(ActionHandlerMock)
+            attack_handler_mock.can_perform.return_value = False, ''
+            self._test_on_enter()
+        return attack_handler_mock, spell_handler_mock
+
+    def test_when_enemy_cannot_do_any_action_then_actions_are_not_performed(self):
+        attack_handler_mock, spell_handler_mock = self._call_on_enter_with_enemy_cannot_do_any_action()
+        attack_handler_mock.perform.assert_not_called()
+        spell_handler_mock.cast.assert_not_called()
+
+    def test_response_when_enemy_cannot_do_any_action(self):
+        self._enemy.name = 'monster'
+        self._call_on_enter_with_enemy_cannot_do_any_action()
+        self._assert_responses('Monster cannot do anything and skips a turn.')
+
+    def test_action_when_enemy_cannot_do_any_action(self):
+        self._call_on_enter_with_enemy_cannot_do_any_action()
+        self._assert_action(commands.BATTLE_ACTION_PERFORMED)
+
 
 class StateBattleConfusedUnitTurnTest(StateBattleStartedTestBase):
-    class DummyItem(Item):
-        @classmethod
-        @property
-        def name(cls) -> str: pass
-
-        def can_use(self, context) -> tuple[bool, str]:
-            pass
-
-        def _use(self, context) -> str:
-            pass
-
     @classmethod
     def _state_class(cls):
         return StateBattleConfusedUnitTurn
@@ -1100,6 +1105,9 @@ class StateBattleConfusedUnitTurnTest(StateBattleStartedTestBase):
         self._selected_second_choice_index = 0
         self._second_selector_choices = []
         self._rng.choice.side_effect = self._rng_choice
+        self._randrange_range = ()
+        self._rng_randrange_result = 0
+        self._rng.randrange.side_effect = self._rng_randrange
         self._select_skip_turn()
         self._add_usable_item()
 
@@ -1123,6 +1131,10 @@ class StateBattleConfusedUnitTurnTest(StateBattleStartedTestBase):
     def _assert_second_choices(self, sequence):
         self.assertEqual(len(self._second_selector_choices), len(sequence))
         self.assertEqual(set(self._second_selector_choices), set(sequence))
+
+    def _rng_randrange(self, start, stop):
+        self._randrange_range = (start, stop)
+        return self._rng_randrange_result
 
     def _test_familiar_turn_on_enter(self):
         self._battle_context.is_player_turn = True
@@ -1351,15 +1363,16 @@ class StateBattleConfusedUnitTurnTest(StateBattleStartedTestBase):
         self.assertFalse(action_context.has_target())
         self.assertIs(action_context.reflected_target, None)
 
-    def _create_usable_item(self, item_use_response=''):
-        return self._create_item_mock(can_use=True, item_use_response=item_use_response)
+    def _create_usable_item(self, item_name='', item_use_response=''):
+        return self._create_item_mock(can_use=True, item_name=item_name, item_use_response=item_use_response)
 
-    def _create_unusable_item(self):
-        return self._create_item_mock(can_use=False)
+    def _create_unusable_item(self, item_name=''):
+        return self._create_item_mock(can_use=False, item_name=item_name)
 
-    def _create_item_mock(self, can_use, item_use_response=''):
-        item = create_autospec(spec=self.DummyItem)
-        item.can_use.return_value = can_use, ''
+    def _create_item_mock(self, can_use, item_name='', item_use_response=''):
+        item = create_autospec(spec=DummyItem)
+        type(item).name = PropertyMock(return_value=item_name)
+        item.cannot_use_reason.return_value = '' if can_use else 'REASON'
         item.use.return_value = item_use_response
         return item
 
@@ -1376,44 +1389,73 @@ class StateBattleConfusedUnitTurnTest(StateBattleStartedTestBase):
 
     def test_response_on_item_use(self):
         self._clear_inventory()
-        self._add_item(self._create_usable_item(item_use_response='Item use.'))
+        self._add_item(self._create_usable_item(item_name='ITEM', item_use_response='Item use.'))
         self._test_item_use()
-        self._assert_responses('Item use.')
+        self._assert_responses('You used the ITEM. Item use.')
 
-    def test_only_usable_items_are_selected(self):
+    def test_when_inventory_has_4_items_then_item_selection_range_is_from_0_to_4(self):
         self._clear_inventory()
-        items = []
-        items.append((0, self._add_item(self._create_usable_item())))
-        items.append((1, self._add_item(self._create_usable_item())))
+        self._add_item(self._create_usable_item())
+        self._add_item(self._create_usable_item())
         self._add_item(self._create_unusable_item())
-        items.append((3, self._add_item(self._create_usable_item())))
+        self._add_item(self._create_usable_item())
         self._test_item_use()
-        self._assert_second_choices(items)
+        self.assertEqual(self._randrange_range, (0, 4))
 
-    def test_item_can_use_is_called_with_proper_context(self):
-        item_1 = self._add_item(self._create_usable_item())
-        item_2 = self._add_item(self._create_usable_item())
-        item_3 = self._add_item(self._create_unusable_item())
-        item_4 = self._add_item(self._create_usable_item())
+    def test_when_inventory_has_2_items_then_item_selection_range_is_from_0_to_2(self):
+        self._clear_inventory()
+        self._add_item(self._create_usable_item())
+        self._add_item(self._create_usable_item())
         self._test_item_use()
-        item_1.can_use.assert_called_once_with(self._context)
-        item_2.can_use.assert_called_once_with(self._context)
-        item_3.can_use.assert_called_once_with(self._context)
-        item_4.can_use.assert_called_once_with(self._context)
+        self.assertEqual(self._randrange_range, (0, 2))
 
     def test_selected_item_is_used(self):
         self._clear_inventory()
         for i in range(5):
-            self._add_item(self._create_usable_item(item_use_response=f'Item {i}'))
-        self._selected_second_choice_index = 2
+            self._add_item(self._create_usable_item(item_name=f'ITEM_{i}', item_use_response=f'Item {i}'))
+        self._rng_randrange_result = 2
         self._test_item_use()
-        self._assert_responses('Item 2')
+        self._assert_responses('You used the ITEM_2. Item 2')
 
-    def test_selected_item_use_context(self):
+    def _test_item_use_context(self) -> UnitActionContext:
         self._clear_inventory()
         item = self._add_item(self._create_usable_item())
         self._test_item_use()
-        self.assertIs(item.use.call_args.args[0], self._context)
+        return item.use.call_args.args[0]
+
+    def test_selected_item_use_context(self):
+        action_context = self._test_item_use_context()
+        self.assertIs(action_context.performer, self._familiar)
+        self.assertIs(action_context.state_machine_context, self._context)
+
+    def _test_item_target_selection(self, can_target_familiar, can_target_enemy):
+        self._clear_inventory()
+        item = self._add_item(self._create_usable_item())
+        item.can_target_familiar.return_value = can_target_familiar
+        item.can_target_enemy.return_value = can_target_enemy
+        self._test_item_use()
+
+    def test_item_use_choices_when_can_target_both(self):
+        self._test_item_target_selection(can_target_familiar=True, can_target_enemy=True)
+        self._assert_second_choices([self._familiar, self._enemy])
+
+    def test_item_use_choices_when_can_target_only_familiar(self):
+        self._test_item_target_selection(can_target_familiar=True, can_target_enemy=False)
+        self._assert_second_choices([self._familiar])
+
+    def test_item_use_choices_when_can_target_only_enemy(self):
+        self._test_item_target_selection(can_target_familiar=False, can_target_enemy=True)
+        self._assert_second_choices([self._enemy])
+
+    def test_item_use_familiar_target_selection(self):
+        self._selected_second_choice_index = 0
+        action_context = self._test_item_use_context()
+        self.assertIs(action_context.target, self._familiar)
+
+    def test_item_use_enemy_target_selection(self):
+        self._selected_second_choice_index = 1
+        action_context = self._test_item_use_context()
+        self.assertIs(action_context.target, self._enemy)
 
     def _add_usable_item(self):
         self._add_item(self._create_usable_item())

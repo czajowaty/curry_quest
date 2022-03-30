@@ -1,5 +1,6 @@
 import unittest
 from curry_quest.config import Config
+from curry_quest.errors import InvalidOperation
 from curry_quest.floor_descriptor import FloorDescriptor
 from curry_quest.genus import Genus
 from curry_quest.items import Pita, HolyScroll, CureAllHerb, Oleem, MedicinalHerb, FireBall
@@ -114,6 +115,20 @@ class SaveLoadStateTest(unittest.TestCase):
         self._sut._context.add_response('Response 3')
         context = self._test_save_load_state_machine_context()
         self.assertEqual(context.take_responses(), ['Response 1', 'Response 3'])
+
+    def test_generate_action_is_handled_correctly(self):
+        self._sut._context.generate_action('COMMAND', 'ARG1', 3)
+        context = self._test_save_load_state_machine_context()
+        self.assertTrue(context.has_action())
+
+    def test_generate_action_is_handled_correctly_when_there_is_no_action(self):
+        context = self._test_save_load_state_machine_context()
+        self.assertFalse(context.has_action())
+
+    def test_when_generated_action_has_non_trivial_arguments_then_saving_throws_exception(self):
+        self._sut._context.generate_action('COMMAND', {})
+        with self.assertRaises(InvalidOperation):
+            self._sut.to_json_object()
 
     def test_floor_turns_counter_is_handled_correctly(self):
         self._sut._context._floor_turns_counter = 4
@@ -423,7 +438,7 @@ class SaveLoadStateTest(unittest.TestCase):
         self._context.start_battle(self._create_enemy())
         self._test_save_load_bare_state(StateBattleUseSpell)
 
-    def test_state_battle_use_item_is_handled_correctly(self):
+    def test_item_in_state_battle_use_item_is_handled_correctly(self):
         self._context.inventory.add_item(Pita())
         self._context.inventory.add_item(HolyScroll())
         self._context.inventory.add_item(MedicinalHerb())
@@ -431,6 +446,26 @@ class SaveLoadStateTest(unittest.TestCase):
         state = StateBattleUseItem.create(self._context, ('Medicinal ',))
         loaded_state = self._test_save_load_state(state)
         self.assertEqual(loaded_state._item_index, 2)
+
+    def _test_state_battle_use_item_target(self, *args) -> StateBattleUseItem:
+        self._context.inventory.add_item(Pita())
+        state = StateBattleUseItem.create(self._context, ('Pita',) + args)
+        return self._test_save_load_state(state)
+
+    def test_familiar_target_in_state_battle_use_item_is_handled_correctly(self):
+        self._context.familiar = self._create_familiar()
+        loaded_state = self._test_state_battle_use_item_target('on', 'self')
+        self.assertIs(loaded_state._target, loaded_state._context.familiar)
+
+    def test_enemy_target_in_state_battle_use_item_is_handled_correctly(self):
+        enemy_unit = self._create_enemy()
+        self._start_battle(enemy=enemy_unit)
+        loaded_state = self._test_state_battle_use_item_target('on', 'enemy')
+        self.assertIs(loaded_state._target, loaded_state._context.battle_context.enemy)
+
+    def test_no_target_in_state_battle_use_item_is_handled_correctly(self):
+        loaded_state = self._test_state_battle_use_item_target()
+        self.assertIs(loaded_state._target, None)
 
     def test_state_battle_try_to_flee_is_handled_correctly(self):
         self._test_save_load_bare_state(StateBattleTryToFlee)

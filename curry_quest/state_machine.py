@@ -3,6 +3,8 @@ from curry_quest import commands
 from curry_quest.config import Config
 from curry_quest.errors import InvalidOperation
 from curry_quest.items import normalize_item_name, all_items
+from curry_quest.jsonable import Jsonable, JsonReaderHelper, InvalidJson
+from curry_quest.services import Services
 from curry_quest.spells import Spells
 from curry_quest.state_base import StateBase
 from curry_quest.state_battle import StateBattleEvent, StateStartBattle, StateBattlePreparePhase, StateBattleApproach, \
@@ -22,9 +24,9 @@ from curry_quest.state_item import StateItemEvent, StateItemPickUp, StateItemPic
 from curry_quest.state_machine_action import StateMachineAction
 from curry_quest.state_machine_context import StateMachineContext
 from curry_quest.state_trap import StateTrapEvent
-import logging
 from curry_quest.statuses import Statuses
-from curry_quest.jsonable import Jsonable, JsonReaderHelper, InvalidJson
+import logging
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -194,9 +196,11 @@ class StateMachine(Jsonable):
     }
 
     def __init__(self, game_config: Config, player_id: int, player_name: str):
-        self._context = StateMachineContext(game_config)
+        self._services = Services()
+        self._context = StateMachineContext(game_config, self._services)
         self._player_id = player_id
         self._player_name = player_name
+        self._autonomous_action_result_handler = lambda responses: None
         self._last_responses = []
         self._state = StateStart(self._context)
         self._event_selection_penalty_end_dt = None
@@ -231,6 +235,9 @@ class StateMachine(Jsonable):
     @player_name.setter
     def player_name(self, new_name) -> str:
         self._player_name = new_name
+
+    def set_autonomous_action_result_handler(self, new_handler: Callable[[int, str], None]):
+        self._autonomous_action_result_handler = new_handler
 
     def set_records_events_handler(self, new_records_events_handler):
         self._context.records_events_handler = new_records_events_handler
@@ -296,6 +303,10 @@ class StateMachine(Jsonable):
     def is_waiting_for_event(self) -> bool:
         return self._state.is_waiting_for_event()
 
+    def handle_delayed_action(self):
+        if self._context.has_action():
+            self._handle_context_action()
+
     def on_action(self, action):
         try:
             if not self._handle_generic_action(action):
@@ -353,8 +364,11 @@ class StateMachine(Jsonable):
 
     def _handle_inventory_query(self, action):
         if self._has_entered_tower():
-            inventory_string = ', '.join(self._context.inventory.items)
-            self._context.add_response(f"You have: {inventory_string}.")
+            if self._context.inventory.is_empty():
+                self._context.add_response("Your inventory is empty.")
+            else:
+                inventory_string = ', '.join(self._context.inventory.items)
+                self._context.add_response(f"You have: {inventory_string}.")
         else:
             self._handle_generic_action_before_entering_tower()
 
@@ -558,9 +572,24 @@ class StateMachine(Jsonable):
             return False
         else:
             self._change_state(transition, action)
-            if self._context.has_action():
-                self._handle_non_generic_action(self._context.take_action())
+            self._handle_context_action()
             return True
+
+    def _handle_context_action(self):
+        if not self._context.has_action():
+            return
+        delay, action = self._context.take_action()
+        if delay == 0:
+            self._handle_non_generic_action(action)
+        else:
+            self._services.timer(
+                name=f'Delayed "{action}" action',
+                interval=delay,
+                callback=lambda: self._handle_delayed_action(action))
+
+    def _handle_delayed_action(self, action: StateMachineAction):
+        responses = self.on_action(action)
+        self._autonomous_action_result_handler(self.player_id, responses)
 
     def _current_state_transition_table(self) -> dict:
         return self.TRANSITIONS.get(type(self._state))

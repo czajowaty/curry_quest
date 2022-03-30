@@ -51,7 +51,7 @@ class PhysicalAttackExecuter:
 
     def _no_target_response(self):
         attacker_words = self.attacker_words
-        return f'{attacker_words.name} {attacker_words.s_verb("attack")} in opposite direction hitting ' \
+        return f'{attacker_words.name.capitalize()} {attacker_words.s_verb("attack")} in opposite direction hitting ' \
             'nothing but air.'
 
     def _is_attack_accurate(self):
