@@ -63,7 +63,8 @@ class StateRestartByUser(StateBase):
 
 
 class StateGameOver(StateBase):
-    pass
+    def is_waiting_for_user_action(self) -> bool:
+        return True
 
 
 class StateMachine(Jsonable):
@@ -130,7 +131,7 @@ class StateMachine(Jsonable):
         StateBattleConfusedUnitTurn: {commands.BATTLE_ACTION_PERFORMED: Transition.by_admin(StateBattlePhase)},
         StateItemEvent: {
             commands.ACCEPTED: Transition.by_user(StateItemPickUp),
-            commands.REJECTED: Transition.by_user(StateItemEventFinished)
+            commands.REJECTED: Transition.by_user(StateItemPickUpIgnored)
         },
         StateItemPickUp: {
             commands.ITEM_PICKED_UP: Transition.by_admin(StateItemEventFinished),

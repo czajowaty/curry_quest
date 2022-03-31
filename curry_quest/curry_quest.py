@@ -70,7 +70,7 @@ class CurryQuest:
     def _parse_admin_args(self, args):
         if len(args) == 0:
             return
-        match = re.match(r'<@!(\d+)>', args[0])
+        match = re.match(r'<@!?(\d+)>', args[0])
         if not match:
             return
         return int(match.group(1)), args[1:]

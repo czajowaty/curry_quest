@@ -4,6 +4,7 @@ from curry_quest.unit_creator import UnitCreator
 from curry_quest.state_with_inventory_item import StateWithInventoryItem
 from curry_quest.statuses import Statuses
 from curry_quest.jsonable import JsonReaderHelper
+from discord_helpers import Emoji
 
 
 class StateCharacterEvent(StateBase):
@@ -54,7 +55,7 @@ class StateCharacterEvent(StateBase):
     def _handle_patty_encounter(self):
         self._context.familiar.set_status(Statuses.StatsBoost)
         return (commands.EVENT_FINISHED, ()), \
-            'She offers you a giant plate of curry. It smells amazing! ' \
+            f'She offers you a giant plate of {Emoji.CURRY}. It smells amazing! ' \
             'You devour it without hesitation. You feel much stronger and sorry for the next monster you encounter.'
 
     def _handle_fur_encounter(self):
@@ -132,6 +133,9 @@ class StateItemTrade(StateBase):
         item = self._context.peek_buffered_item()
         self._context.add_response(f"You have: {inventory_string}. Fur offers {item.name}. Do you want to trade?")
 
+    def is_waiting_for_user_action(self) -> bool:
+        return True
+
 
 class StateItemTradeAccepted(StateWithInventoryItem):
     def on_enter(self):
@@ -162,6 +166,9 @@ class StateFamiliarTrade(StateBase):
         self._context.add_response(
             f"You have: {familiar.to_string()}. Selfi offers {familiar_for_trade.to_string()}. "
             "Do you want to trade?")
+
+    def is_waiting_for_user_action(self) -> bool:
+        return True
 
 
 class StateFamiliarTradeAccepted(StateBase):

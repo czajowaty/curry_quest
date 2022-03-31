@@ -8,10 +8,14 @@ class StateElevatorEvent(StateBase):
             f"You find an elevator. You are currently on {self._context.floor + 1}F. "
             "Do you want to go to the next floor?")
 
+    def is_waiting_for_user_action(self) -> bool:
+        return True
+
 
 class StateElevatorUsed(StateBase):
     def on_enter(self):
         self._context.records.used_elevators_counter += 1
+        self._context.generate_action(commands.GO_UP)
 
 
 class StateGoUp(StateBase):
