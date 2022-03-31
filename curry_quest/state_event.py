@@ -1,6 +1,7 @@
 from curry_quest import commands
-from curry_quest.state_base import StateBase
+from curry_quest.config import Config
 from curry_quest.jsonable import JsonReaderHelper
+from curry_quest.state_base import StateBase
 
 
 class StateWaitForEvent(StateBase):
@@ -46,4 +47,8 @@ class StateGenerateEvent(StateBase):
         self._context.generate_action(commands.EVENT_GENERATED, self._select_event())
 
     def _select_event(self):
-        return self._context.random_selection_with_weights(self.game_config.events_weights) + '_event'
+        events_weights = dict(self.game_config.events_weights)
+        floor_turn_progress = self._context._floor_turns_counter / self.game_config.eq_settings.floor_collapse_turn
+        elevator_weight_range: Config.WeightRange = events_weights['elevator']
+        events_weights['elevator'] = elevator_weight_range.int_value_at(fraction=floor_turn_progress)
+        return self._context.random_selection_with_weights(events_weights) + '_event'

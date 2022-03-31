@@ -36,6 +36,17 @@ class Config:
         def __init__(self):
             self.ghosh = UnitTraits()
 
+    class WeightRange:
+        def __init__(self, start, end):
+            self.start = start
+            self.end = end
+
+        def int_value_at(self, fraction) -> int:
+            return round(self.value_at(fraction))
+
+        def value_at(self, fraction) -> float:
+            return (1.0 - fraction) * self.start + fraction * self.end
+
     def __init__(self):
         self._timers = self.Timers()
         self._eq_settings = self.EarthquakeSettings()
@@ -113,7 +124,7 @@ class Config:
             self._read_eq_settings()
             self._read_probabilities()
             self._read_player_selection_weights()
-            self._config.events_weights = self._config_json['events_weights']
+            self._read_events_weights()
             self._config.found_items_weights = self._config_json['found_items_weights']
             self._config.character_events_weights = self._config_json['characters_events_weights']
             self._config.traps_weights = self._config_json['traps_weights']
@@ -160,6 +171,12 @@ class Config:
                 player_selection_weights.with_penalty = player_selection_weights_json['with_penalty']
             except ValueError as exc:
                 raise self.InvalidConfig(f"{player_selection_weights_json}: {exc}")
+
+        def _read_events_weights(self):
+            events_weights = self._config_json['events_weights']
+            elevator_weight = events_weights['elevator']
+            events_weights['elevator'] = Config.WeightRange(elevator_weight['start'], elevator_weight['end'])
+            self._config.events_weights = events_weights
 
         def _read_levels(self):
             levels = self._config._levels
@@ -337,8 +354,21 @@ class Config:
             if len(excessive_keys) > 0:
                 excessive_keys_string = ', '.join(f'"{excessive_key}"' for excessive_key in excessive_keys)
                 raise self.InvalidConfig(f'"{dictionary_name}" - excessive_keys weights for: {excessive_keys_string}')
-            if sum(weights_dictionary.values()) == 0:
-                raise self.InvalidConfig(f'"{dictionary_name}" - all weights are 0s')
+            summed_start_weight = 0
+            summed_end_weight = 0
+            for key, value in weights_dictionary.items():
+                if isinstance(value, int):
+                    summed_start_weight += value
+                    summed_end_weight += value
+                elif isinstance(value, Config.WeightRange):
+                    summed_start_weight += value.start
+                    summed_end_weight += value.end
+                else:
+                    raise self.InvalidConfig(f'"{dictionary_name}" - unexpected value ("{key}": "{value}")')
+            if summed_start_weight == 0:
+                raise self.InvalidConfig(f'"{dictionary_name}" - all start weights are 0s')
+            if summed_end_weight == 0:
+                raise self.InvalidConfig(f'"{dictionary_name}" - all end weights are 0s')
 
         def _validate_experience_per_level(self):
             if self._config.levels.max_level == 0:
