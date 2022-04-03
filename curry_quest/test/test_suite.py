@@ -7,6 +7,7 @@ import save_load_state_test
 import spells_test
 import state_battle_test
 import state_item_test
+import weight_test
 import unittest
 
 
@@ -20,7 +21,8 @@ def suite():
         save_load_state_test,
         spells_test,
         state_battle_test,
-        state_item_test
+        state_item_test,
+        weight_test
     ]
     loader = unittest.TestLoader()
     return unittest.TestSuite([loader.loadTestsFromModule(test) for test in test_modules])

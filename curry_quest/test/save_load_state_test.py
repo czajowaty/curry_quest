@@ -29,6 +29,7 @@ from curry_quest.talents import Talents
 from curry_quest.unit import Unit
 from curry_quest.unit_traits import UnitTraits
 import json
+from curry_quest.weight import StaticWeight, NoWeightPenaltyHandler
 
 
 class SaveLoadStateTest(unittest.TestCase):
@@ -39,6 +40,10 @@ class SaveLoadStateTest(unittest.TestCase):
         self._ghosh_traits = UnitTraits()
         self._ghosh_traits.name = 'Ghosh'
         self._game_config = Config()
+        self._game_config.events_weights['character'] = (StaticWeight(10), NoWeightPenaltyHandler())
+        self._game_config.found_items_weights['Pita'] = (StaticWeight(10), NoWeightPenaltyHandler())
+        self._game_config.character_events_weights['Cherrl'] = (StaticWeight(10), NoWeightPenaltyHandler())
+        self._game_config.traps_weights['Sleep'] = (StaticWeight(10), NoWeightPenaltyHandler())
         for exp in range(10):
             self._game_config.levels.add_level(exp)
         for _ in range(40):
@@ -144,15 +149,30 @@ class SaveLoadStateTest(unittest.TestCase):
         loaded_inventory = context.inventory
         self.assertEqual(loaded_inventory.items, ['Pita', 'Holy Scroll', 'Cure-All Herb'])
 
-    def test_last_met_character_is_handled_correctly(self):
-        self._sut._context.last_met_character = 'Beldo'
-        context = self._test_save_load_state_machine_context()
-        self.assertEqual(context.last_met_character, 'Beldo')
-
     def test_item_buffer_is_handled_correctly(self):
         self._sut._context.buffer_item(Oleem())
         context = self._test_save_load_state_machine_context()
         self.assertIsInstance(context.peek_buffered_item(), Oleem)
+
+    def test_event_weight_handlers_are_handled_correctly(self):
+        self._sut._context._event_weight_handlers['character_event'].penalty_timer = 3
+        context = self._test_save_load_state_machine_context()
+        self.assertEqual(context._event_weight_handlers['character_event'].penalty_timer, 3)
+
+    def test_item_weight_handlers_are_handled_correctly(self):
+        self._sut._context._item_weight_handlers['Pita'].penalty_timer = 2
+        context = self._test_save_load_state_machine_context()
+        self.assertEqual(context._item_weight_handlers['Pita'].penalty_timer, 2)
+
+    def test_character_weight_handlers_are_handled_correctly(self):
+        self._sut._context._character_weight_handlers['Cherrl'].penalty_timer = 6
+        context = self._test_save_load_state_machine_context()
+        self.assertEqual(context._character_weight_handlers['Cherrl'].penalty_timer, 6)
+
+    def test_trap_weight_handlers_are_handled_correctly(self):
+        self._sut._context._trap_weight_handlers['Sleep'].penalty_timer = 5
+        context = self._test_save_load_state_machine_context()
+        self.assertEqual(context._trap_weight_handlers['Sleep'].penalty_timer, 5)
 
     def _test_save_load_familiar(self, familiar) -> Unit:
         self._sut._context.familiar = familiar
