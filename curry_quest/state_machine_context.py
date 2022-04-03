@@ -15,6 +15,10 @@ from curry_quest.unit_action import UnitActionContext
 from curry_quest.unit_creator import UnitCreator
 from curry_quest.unit_traits import UnitTraits
 from curry_quest.services import Services
+from curry_quest.weight import WeightHandler
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class BattleContext(Jsonable):
@@ -116,13 +120,24 @@ class StateMachineContext(Jsonable):
         self._familiar = None
         self._inventory = Inventory()
         self._battle_context = None
-        self._last_met_character = ''
         self._item_buffer = None
         self._unit_buffer = None
         self._rng = self._services.rng()
         self._responses = []
         self._generated_action = None
         self._floor_turns_counter = 0
+        self._event_weight_handlers = {}
+        self._item_weight_handlers = {}
+        self._character_weight_handlers = {}
+        self._trap_weight_handlers = {}
+        self._fill_weight_handlers(self.game_config.events_weights, self._event_weight_handlers, key_suffix='_event')
+        self._fill_weight_handlers(self.game_config.found_items_weights, self._item_weight_handlers)
+        self._fill_weight_handlers(self.game_config.character_events_weights, self._character_weight_handlers)
+        self._fill_weight_handlers(self.game_config.traps_weights, self._trap_weight_handlers)
+
+    def _fill_weight_handlers(self, weight_descriptors, weight_handlers, key_suffix=''):
+        for key, weight_descriptor in weight_descriptors.items():
+            weight_handlers[key + key_suffix] = WeightHandler.from_descriptor(weight_descriptor)
 
     def to_json_object(self):
         json_object = {
@@ -130,7 +145,6 @@ class StateMachineContext(Jsonable):
             'is_tutorial_done': self.is_tutorial_done,
             'floor': self.floor,
             'inventory': self.inventory.to_json_object(),
-            'last_met_character': self.last_met_character,
             'rng_state': jsonpickle.encode(self.rng.getstate()),
             'responses': self._responses,
             'floor_turns_counter': self._floor_turns_counter
@@ -145,6 +159,10 @@ class StateMachineContext(Jsonable):
             json_object['unit_buffer'] = self._unit_buffer.to_json_object()
         if self.has_action():
             json_object['generated_action'] = self._generated_action_to_json_object()
+        json_object['events_penalties'] = self._weight_handlers_to_json_object(self._event_weight_handlers)
+        json_object['items_penalties'] = self._weight_handlers_to_json_object(self._item_weight_handlers)
+        json_object['characters_penalties'] = self._weight_handlers_to_json_object(self._character_weight_handlers)
+        json_object['traps_penalties'] = self._weight_handlers_to_json_object(self._trap_weight_handlers)
         return json_object
 
     def _generated_action_to_json_object(self):
@@ -163,6 +181,14 @@ class StateMachineContext(Jsonable):
                 return False
         return True
 
+    def _weight_handlers_to_json_object(self, weight_handlers):
+        return {
+            key: weight_handler.penalty_timer
+            for key, weight_handler
+            in weight_handlers.items()
+            if weight_handler.has_penalty()
+        }
+
     def from_json_object(self, json_object):
         json_reader_helper = JsonReaderHelper(json_object)
         self._is_tutorial_done = json_reader_helper.read_bool('is_tutorial_done')
@@ -176,7 +202,6 @@ class StateMachineContext(Jsonable):
             self._familiar = self.create_familiar_from_json_object(json_object['familiar'])
         if 'battle_context' in json_object:
             self._read_battle_context_from_json_object(json_reader_helper.read_dict('battle_context'))
-        self.last_met_character = json_reader_helper.read_string('last_met_character')
         if 'item_buffer' in json_object:
             self.buffer_item(ItemJsonLoader.from_json_object(json_object['item_buffer']))
         if 'unit_buffer' in json_object:
@@ -187,6 +212,22 @@ class StateMachineContext(Jsonable):
         if generated_action_json_object is not None:
             self._read_generated_action_from_json_object(generated_action_json_object)
         self._floor_turns_counter = json_reader_helper.read_int_with_min('floor_turns_counter', min_value=0)
+        self._read_weight_handlers_from_json_object(
+            json_reader_helper,
+            penalties_key='events_penalties',
+            weight_handlers=self._event_weight_handlers)
+        self._read_weight_handlers_from_json_object(
+            json_reader_helper,
+            penalties_key='items_penalties',
+            weight_handlers=self._item_weight_handlers)
+        self._read_weight_handlers_from_json_object(
+            json_reader_helper,
+            penalties_key='characters_penalties',
+            weight_handlers=self._character_weight_handlers)
+        self._read_weight_handlers_from_json_object(
+            json_reader_helper,
+            penalties_key='traps_penalties',
+            weight_handlers=self._trap_weight_handlers)
 
     def _read_generated_action_from_json_object(self, json_object):
         json_reader_helper = JsonReaderHelper(json_object)
@@ -194,6 +235,20 @@ class StateMachineContext(Jsonable):
         command = json_reader_helper.read_non_empty_string('command')
         args = json_reader_helper.read_list('args')
         self.generate_delayed_action(delay, command, *args)
+
+    def _read_weight_handlers_from_json_object(
+            self,
+            json_reader_helper: JsonReaderHelper,
+            penalties_key: str,
+            weight_handlers: dict):
+        penalties_json_object = json_reader_helper.read_optional_value_of_type(penalties_key, dict)
+        if penalties_json_object is None:
+            return
+        penalties_json_reader_helper = JsonReaderHelper(penalties_json_object)
+        for key, weight_handler in weight_handlers.items():
+            if key in penalties_json_reader_helper:
+                penalty_timer = penalties_json_reader_helper.read_non_negative(key)
+                weight_handler.penalty_timer = penalty_timer
 
     @property
     def services(self) -> Services:
@@ -304,14 +359,6 @@ class StateMachineContext(Jsonable):
         return unit
 
     @property
-    def last_met_character(self) -> str:
-        return self._last_met_character
-
-    @last_met_character.setter
-    def last_met_character(self, value):
-        self._last_met_character = value
-
-    @property
     def rng(self):
         return self._rng
 
@@ -353,6 +400,7 @@ class StateMachineContext(Jsonable):
             .create(level=level, levels=self.game_config.levels)
 
     def random_selection_with_weights(self, element_weight_dictionary: dict):
+        logger.info(f"Selecting with weights '{element_weight_dictionary}'.")
         return self.rng.choices(list(element_weight_dictionary.keys()), list(element_weight_dictionary.values()))[0]
 
     def _remove_enemy_forbidden_talents(self, enemy_traits: UnitTraits):
@@ -474,3 +522,52 @@ class StateMachineContext(Jsonable):
         else:
             action_context.target = target
         return action_handler, action_context
+
+    @property
+    def events_weights(self):
+        return self._create_weights(self._event_weight_handlers)
+
+    @property
+    def items_weights(self):
+        return self._create_weights(self._item_weight_handlers)
+
+    @property
+    def characters_weights(self):
+        return self._create_weights(self._character_weight_handlers)
+
+    @property
+    def trap_weights(self):
+        return self._create_weights(self._trap_weight_handlers)
+
+    def _create_weights(self, weight_handlers):
+        weights = {}
+        for key, weight_handler in weight_handlers.items():
+            weight_value = weight_handler.value(self)
+            if weight_value > 0:
+                weights[key] = weight_value
+        return weights
+
+    def set_event_weight_penalty(self, event):
+        self._set_weight_penalty(self._event_weight_handlers, event)
+
+    def set_character_weight_penalty(self, character):
+        self._set_weight_penalty(self._character_weight_handlers, character)
+
+    def set_item_weight_penalty(self, item_name):
+        self._set_weight_penalty(self._item_weight_handlers, item_name)
+
+    def set_trap_weight_penalty(self, trap):
+        self._set_weight_penalty(self._trap_weight_handlers, trap)
+
+    def _set_weight_penalty(self, weight_handlers, key):
+        weight_handlers[key].set_penalty()
+
+    def decrease_weight_penalty_timers(self):
+        self._decrease_weight_penalty_timers(self._event_weight_handlers)
+        self._decrease_weight_penalty_timers(self._item_weight_handlers)
+        self._decrease_weight_penalty_timers(self._character_weight_handlers)
+        self._decrease_weight_penalty_timers(self._trap_weight_handlers)
+
+    def _decrease_weight_penalty_timers(self, weight_handlers):
+        for weight_handler in weight_handlers.values():
+            weight_handler.decrease_penalty_timer()

@@ -3,10 +3,13 @@ from collections.abc import Mapping, Sequence
 from curry_quest.floor_descriptor import FloorDescriptor, Monster
 from curry_quest.genus import Genus
 from curry_quest.items import all_items
+from curry_quest.jsonable import JsonReaderHelper
 from curry_quest.levels_config import Levels
 from curry_quest.spells import Spells
 from curry_quest.talents import Talents
 from curry_quest.unit_traits import UnitTraits
+from curry_quest.weight import StaticWeight, LevelProratedWeight, FloorProgressionProratedWeight, \
+    MaxWeightPenaltyHandler, StaticWeightPenaltyHandler
 
 
 class Config:
@@ -16,7 +19,6 @@ class Config:
     class Timers:
         def __init__(self):
             self.event_interval = 0
-            self.event_penalty_duration = 0
 
     class EarthquakeSettings:
         def __init__(self):
@@ -124,10 +126,10 @@ class Config:
             self._read_eq_settings()
             self._read_probabilities()
             self._read_player_selection_weights()
-            self._read_events_weights()
-            self._config.found_items_weights = self._config_json['found_items_weights']
-            self._config.character_events_weights = self._config_json['characters_events_weights']
-            self._config.traps_weights = self._config_json['traps_weights']
+            self._config.events_weights = self._read_weights(self._config_json['events_weights'])
+            self._config.found_items_weights = self._read_weights(self._config_json['found_items_weights'])
+            self._config.character_events_weights = self._read_weights(self._config_json['characters_events_weights'])
+            self._config.traps_weights = self._read_weights(self._config_json['traps_weights'])
             self._read_levels()
             self._default_monster_action_weights = self._read_monster_action_weights(
                 self._config_json['default_monster_action_weights'])
@@ -141,7 +143,6 @@ class Config:
             timers_json = self._config_json['timers']
             try:
                 timers.event_interval = int(timers_json['event_interval'])
-                timers.event_penalty_duration = int(timers_json['event_penalty_duration'])
             except ValueError as exc:
                 raise self.InvalidConfig(f"{timers_json}: {exc}")
 
@@ -172,11 +173,58 @@ class Config:
             except ValueError as exc:
                 raise self.InvalidConfig(f"{player_selection_weights_json}: {exc}")
 
-        def _read_events_weights(self):
-            events_weights = self._config_json['events_weights']
-            elevator_weight = events_weights['elevator']
-            events_weights['elevator'] = Config.WeightRange(elevator_weight['start'], elevator_weight['end'])
-            self._config.events_weights = events_weights
+        def _read_weights(self, weights_json):
+            return {key: self._read_weight_descriptor(key, value) for key, value in weights_json.items()}
+
+        def _read_weight_descriptor(self, key, value):
+            if isinstance(value, int):
+                return self._create_weight_descriptor(StaticWeight(value))
+            if isinstance(value, dict):
+                return self._read_complex_weight_descriptor(key, value)
+            raise self.InvalidConfig(f"Invalid type '{type(value)}' for weight '{key}: {value}'")
+
+        def _create_weight_descriptor(self, weight, penalty_handler=None):
+            return (weight, penalty_handler)
+
+        def _read_complex_weight_descriptor(self, key, weight_dict):
+            return self._create_weight_descriptor(
+                self._create_weight(key, weight_dict),
+                self._read_weight_penalty_handler(key, weight_dict))
+
+        def _create_weight(self, key, weight_dict):
+            json_reader_helper = JsonReaderHelper(weight_dict)
+            progression = json_reader_helper.read_optional_value_of_type('progression', str)
+            if progression is not None:
+                return self._create_prorated_weight(key, json_reader_helper)
+            else:
+                return StaticWeight(json_reader_helper.read_non_negative('value'))
+
+        def _create_prorated_weight(self, key, json_reader_helper: JsonReaderHelper):
+            value_json_reader_helper = json_reader_helper.read_json('value')
+            min_weight = value_json_reader_helper.read_non_negative('min')
+            max_weight = value_json_reader_helper.read_non_negative('max')
+            progression_type = json_reader_helper.read_string('progression')
+            if progression_type == 'floor_turns_counter':
+                return FloorProgressionProratedWeight(min_weight, max_weight)
+            if progression_type == 'level':
+                return LevelProratedWeight(
+                    min_weight,
+                    max_weight,
+                    json_reader_helper.read_non_negative('level_for_max_value'))
+            raise self.InvalidConfig(
+                f"Invalid progression '{progression_type}' for weight '{key}: {json_reader_helper.json_object}'")
+
+        def _read_weight_penalty_handler(self, key, weight_dict):
+            json_reader_helper = JsonReaderHelper(weight_dict)
+            penalty = json_reader_helper.read_optional_value_of_type('penalty', int)
+            penalty_duration = json_reader_helper.read_optional_value_of_type('penalty_duration', int)
+            if penalty_duration is None:
+                return None
+            penalty_duration += 1
+            if penalty is None:
+                return MaxWeightPenaltyHandler(penalty_duration=penalty_duration)
+            else:
+                return StaticWeightPenaltyHandler(penalty=penalty, penalty_duration=penalty_duration)
 
         def _read_levels(self):
             levels = self._config._levels
@@ -306,9 +354,9 @@ class Config:
             self._validate_floors()
 
         def _validate_earthquake_settings(self):
-            if self._config.eq_settings.earthquake_turn == 0:
+            if self._config.eq_settings.earthquake_turn <= 0:
                 raise self.InvalidConfig(f'"turns_to_earthquake" value must be greater than 0.')
-            if self._config.eq_settings.floor_collapse_turn == self._config.eq_settings.earthquake_turn:
+            if self._config.eq_settings.floor_collapse_turn <= self._config.eq_settings.earthquake_turn:
                 raise self.InvalidConfig(f'"turns_from_earthquake_to_floor_collapse" value must be greater than 0.')
 
         def _validate_probabilities(self):
@@ -354,21 +402,6 @@ class Config:
             if len(excessive_keys) > 0:
                 excessive_keys_string = ', '.join(f'"{excessive_key}"' for excessive_key in excessive_keys)
                 raise self.InvalidConfig(f'"{dictionary_name}" - excessive_keys weights for: {excessive_keys_string}')
-            summed_start_weight = 0
-            summed_end_weight = 0
-            for key, value in weights_dictionary.items():
-                if isinstance(value, int):
-                    summed_start_weight += value
-                    summed_end_weight += value
-                elif isinstance(value, Config.WeightRange):
-                    summed_start_weight += value.start
-                    summed_end_weight += value.end
-                else:
-                    raise self.InvalidConfig(f'"{dictionary_name}" - unexpected value ("{key}": "{value}")')
-            if summed_start_weight == 0:
-                raise self.InvalidConfig(f'"{dictionary_name}" - all start weights are 0s')
-            if summed_end_weight == 0:
-                raise self.InvalidConfig(f'"{dictionary_name}" - all end weights are 0s')
 
         def _validate_experience_per_level(self):
             if self._config.levels.max_level == 0:

@@ -22,7 +22,7 @@ class StateCharacterEvent(StateBase):
 
     def on_enter(self):
         character = self._select_character()
-        self._context.last_met_character = character
+        self._context.set_character_weight_penalty(character)
         encounter_handler = self.ENCOUNTERS[character]
         (next_command, args), response = encounter_handler(self)
         self._context.add_response(f'You meet {character}. {response}')
@@ -32,15 +32,18 @@ class StateCharacterEvent(StateBase):
         return self._character or self._context.random_selection_with_weights(self._character_events_weights())
 
     def _character_events_weights(self):
-        character_events_weights = dict(self.game_config.character_events_weights)
+        character_events_weights = self._context.characters_weights
+
+        def remove_weight(character):
+            if character in character_events_weights:
+                del character_events_weights[character]
+
         if not self._context.familiar.does_evolve():
-            del character_events_weights['Mia']
+            remove_weight('Mia')
         if self._context.familiar.is_hp_at_max():
-            del character_events_weights['Cherrl']
+            remove_weight('Cherrl')
         if self._context.familiar.has_status(Statuses.StatsBoost):
-            del character_events_weights['Patty']
-        if self._context.last_met_character in character_events_weights:
-            del character_events_weights[self._context.last_met_character]
+            remove_weight('Patty')
         return character_events_weights
 
     def _handle_cherrl_encounter(self):

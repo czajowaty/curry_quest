@@ -14,22 +14,28 @@ class StateTrapEvent(StateBase):
 
     def on_enter(self):
         trap = self._select_trap()
+        self._context.set_trap_weight_penalty(trap)
         trap_handler = self.TRAPS[trap]
         command, response = trap_handler(self)
         self._context.add_response(f'You stepped on a {trap} trap! {response}')
         self._context.generate_action(command)
 
     def _select_trap(self):
-        traps_weights = dict(self.game_config.traps_weights)
+        traps_weights = self._context.trap_weights
+
+        def remove_weight(trap):
+            if trap in traps_weights:
+                del traps_weights[trap]
+
         if self._familiar().has_status(Statuses.Sleep):
-            traps_weights['Sleep'] = 0
+            remove_weight('Sleep')
         if self._familiar().has_status(Statuses.Upheaval):
-            traps_weights['Upheaval'] = 0
+            remove_weight('Upheaval')
         if self._familiar().has_status(Statuses.Crack):
-            traps_weights['Crack'] = 0
+            remove_weight('Crack')
         if self._familiar().has_status(Statuses.Blind):
-            traps_weights['Blinder'] = 0
-        return self._trap or self._context.random_selection_with_weights(self.game_config.traps_weights)
+            remove_weight('Blinder')
+        return self._trap or self._context.random_selection_with_weights(traps_weights)
 
     def _familiar(self) -> Unit:
         return self._context.familiar

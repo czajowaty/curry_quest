@@ -1,5 +1,6 @@
 from curry_quest import Config
 from curry_quest.spells import Spells
+from curry_quest.weight import WeightHandler
 
 
 def print_units(units_traits):
@@ -44,6 +45,11 @@ def print_units(units_traits):
         print(f"    Evolves into: {unit_traits.evolves_into if unit_traits.does_evolve() else '-'}")
 
 
+def print_weights(weights):
+    for key, value in weights.items():
+        print(f"  {key}: {WeightHandler.from_descriptor(value)}")
+
+
 if __name__ == '__main__':
     import sys
 
@@ -53,3 +59,11 @@ if __name__ == '__main__':
     print_units(config.monsters_traits)
     print("Non-evolved monster unit traits:")
     print_units(config.non_evolved_monster_traits)
+    print("Events:")
+    print_weights(config.events_weights)
+    print("Items:")
+    print_weights(config.found_items_weights)
+    print("Character events:")
+    print_weights(config.character_events_weights)
+    print("Trap events:")
+    print_weights(config.traps_weights)

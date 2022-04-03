@@ -19,9 +19,16 @@ class JsonReaderHelper:
         if not isinstance(self._json_object, dict):
             self.raise_exception('Not a valid JSON.')
 
+    @property
+    def json_object(self) -> dict:
+        return self._json_object
+
+    def __contains__(self, key):
+        return key in self._json_object
+
     def read_value(self, key):
-        if key not in self._json_object:
-            self._raise_exception(f'Key "{key}" does not exist.')
+        if key not in self:
+            self.raise_exception(f'Key "{key}" does not exist.')
         return self._json_object[key]
 
     def read_bool(self, key):
@@ -35,6 +42,9 @@ class JsonReaderHelper:
         if value < min_value:
             self.raise_exception(f'"{key}={value}" expected to be greater than {min_value}.')
         return value
+
+    def read_non_negative(self, key):
+        return self.read_int_with_min(key, min_value=0)
 
     def read_int_in_range(self, key, min_value, max_value):
         value = self.read_int(key)
@@ -66,6 +76,9 @@ class JsonReaderHelper:
 
     def read_dict(self, key):
         return self.read_value_of_type(key, dict)
+
+    def read_json(self, key):
+        return JsonReaderHelper(self.read_dict(key))
 
     def read_value_of_type(self, key, value_type):
         value = self.read_value(key)

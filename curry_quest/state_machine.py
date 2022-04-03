@@ -15,7 +15,7 @@ from curry_quest.state_character import StateCharacterEvent, StateItemTrade, Sta
     StateEvolveFamiliar
 from curry_quest.state_elevator import StateElevatorEvent, StateGoUp, StateElevatorOmitted, StateNextFloor,\
     StateElevatorUsed
-from curry_quest.state_event import StateWaitForEvent, StateGenerateEvent
+from curry_quest.state_event import StateWaitForEvent, StateGenerateEvent, StateEventFinished
 from curry_quest.state_familiar import StateFamiliarEvent, StateMetFamiliarIgnore, StateFamiliarFusion, \
     StateFamiliarReplacement
 from curry_quest.state_initialize import StateInitialize, StateEnterTower
@@ -81,10 +81,13 @@ class StateMachine(Jsonable):
             commands.TRAP_EVENT: Transition.by_admin(StateTrapEvent),
             commands.CHARACTER_EVENT: Transition.by_admin(StateCharacterEvent),
             commands.ELEVATOR_EVENT: Transition.by_admin(StateElevatorEvent),
-            commands.FAMILIAR_EVENT: Transition.by_admin(StateFamiliarEvent),
-            commands.GO_UP: Transition.by_admin(StateGoUp)
+            commands.FAMILIAR_EVENT: Transition.by_admin(StateFamiliarEvent)
         },
         StateGenerateEvent: {commands.EVENT_GENERATED: Transition.by_admin(StateWaitForEvent)},
+        StateEventFinished: {
+            commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent),
+            commands.GO_UP: Transition.by_admin(StateGoUp)
+        },
         StateBattleEvent: {commands.START_BATTLE: Transition.by_admin(StateStartBattle)},
         StateStartBattle: {commands.BATTLE_PREPARE_PHASE: Transition.by_admin(StateBattlePreparePhase)},
         StateBattlePreparePhase: {
@@ -98,7 +101,7 @@ class StateMachine(Jsonable):
             commands.ENEMY_TURN: Transition.by_admin(StateBattleEnemyTurn),
             commands.SKIP_TURN: Transition.by_admin(StateBattlePhase),
             commands.CONFUSED_UNIT_TURN: Transition.by_admin(StateBattleConfusedUnitTurn),
-            commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent),
+            commands.EVENT_FINISHED: Transition.by_admin(StateEventFinished),
             commands.YOU_DIED: Transition.by_admin(StateGameOver)
         },
         StateBattlePlayerTurn: {
@@ -149,10 +152,10 @@ class StateMachine(Jsonable):
         },
         StateItemPickUpAfterDrop: {commands.ITEM_PICKED_UP: Transition.by_admin(StateItemEventFinished)},
         StateItemPickUpIgnored: {commands.EVENT_FINISHED: Transition.by_admin(StateItemEventFinished)},
-        StateItemEventFinished: {commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent)},
+        StateItemEventFinished: {commands.EVENT_FINISHED: Transition.by_admin(StateEventFinished)},
         StateTrapEvent: {
             commands.GO_UP: Transition.by_admin(StateGoUp),
-            commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent)
+            commands.EVENT_FINISHED: Transition.by_admin(StateEventFinished)
         },
         StateElevatorEvent: {
             commands.ACCEPTED: Transition.by_user(StateElevatorUsed),
@@ -160,7 +163,7 @@ class StateMachine(Jsonable):
         },
         StateElevatorUsed: {commands.GO_UP: Transition.by_admin(StateGoUp)},
         StateGoUp: {commands.ENTERED_NEXT_FLOOR: Transition.by_admin(StateNextFloor)},
-        StateElevatorOmitted: {commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent)},
+        StateElevatorOmitted: {commands.EVENT_FINISHED: Transition.by_admin(StateEventFinished)},
         StateNextFloor: {
             commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent),
             commands.FINISH_GAME: Transition.by_admin(StateGameOver)
@@ -170,29 +173,29 @@ class StateMachine(Jsonable):
             commands.START_FAMILIAR_TRADE: Transition.by_admin(StateFamiliarTrade),
             commands.EVOLVE_FAMILIAR: Transition.by_admin(StateEvolveFamiliar),
             commands.START_BATTLE: Transition.by_admin(StateStartBattle),
-            commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent)
+            commands.EVENT_FINISHED: Transition.by_admin(StateEventFinished)
         },
         StateItemTrade: {
             commands.TRADE_ITEM: Transition.by_user(StateItemTradeAccepted),
             commands.REJECTED: Transition.by_user(StateItemTradeRejected)
         },
-        StateItemTradeAccepted: {commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent)},
-        StateItemTradeRejected: {commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent)},
+        StateItemTradeAccepted: {commands.EVENT_FINISHED: Transition.by_admin(StateEventFinished)},
+        StateItemTradeRejected: {commands.EVENT_FINISHED: Transition.by_admin(StateEventFinished)},
         StateFamiliarTrade: {
             commands.ACCEPTED: Transition.by_user(StateFamiliarTradeAccepted),
             commands.REJECTED: Transition.by_user(StateFamiliarTradeRejected)
         },
-        StateFamiliarTradeAccepted: {commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent)},
-        StateFamiliarTradeRejected: {commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent)},
-        StateEvolveFamiliar: {commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent)},
+        StateFamiliarTradeAccepted: {commands.EVENT_FINISHED: Transition.by_admin(StateEventFinished)},
+        StateFamiliarTradeRejected: {commands.EVENT_FINISHED: Transition.by_admin(StateEventFinished)},
+        StateEvolveFamiliar: {commands.EVENT_FINISHED: Transition.by_admin(StateEventFinished)},
         StateFamiliarEvent: {
             commands.IGNORE: Transition.by_user(StateMetFamiliarIgnore),
             commands.FUSE: Transition.by_user(StateFamiliarFusion),
             commands.REPLACE: Transition.by_user(StateFamiliarReplacement)
         },
-        StateMetFamiliarIgnore: {commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent)},
-        StateFamiliarFusion: {commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent)},
-        StateFamiliarReplacement: {commands.EVENT_FINISHED: Transition.by_admin(StateWaitForEvent)},
+        StateMetFamiliarIgnore: {commands.EVENT_FINISHED: Transition.by_admin(StateEventFinished)},
+        StateFamiliarFusion: {commands.EVENT_FINISHED: Transition.by_admin(StateEventFinished)},
+        StateFamiliarReplacement: {commands.EVENT_FINISHED: Transition.by_admin(StateEventFinished)},
         StateGameOver: {commands.RESTART: Transition.by_user(StateRestartByUser)}
     }
 
@@ -529,7 +532,7 @@ class StateMachine(Jsonable):
             response += f'Earthquake: '
             turns_until_eq = self._context.turns_until_earthquake()
             response += 'done' if turns_until_eq <= 0 else f'in {turns_until_eq} turns.'
-            response += f'\nFloor collapse: in {self._context.turns_until_floor_collapse()} turns.'
+            response += f'.\nFloor collapse: in {self._context.turns_until_floor_collapse()} turns.'
             self._context.add_response(response)
         else:
             self._handle_generic_action_before_entering_tower()

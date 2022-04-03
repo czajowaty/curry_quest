@@ -22,6 +22,7 @@ class StateItemEvent(StateBase):
 
     def on_enter(self):
         item = self._select_item()
+        self._context.set_item_weight_penalty(item.name)
         self._context.buffer_item(item)
         self._context.add_response(f"You come across a {item.name}. Do you want to pick it up?")
 
@@ -29,7 +30,8 @@ class StateItemEvent(StateBase):
         return self._item or self._context.random_selection_with_weights(self._found_items_weights())
 
     def _found_items_weights(self):
-        return dict((item, self.game_config.found_items_weights[item.name]) for item in all_items())
+        items_weights = self._context.items_weights
+        return {item: items_weights[item.name] for item in all_items()}
 
     def is_waiting_for_user_action(self) -> bool:
         return True
