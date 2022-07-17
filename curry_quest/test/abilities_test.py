@@ -1,8 +1,9 @@
 import unittest
 from unittest.mock import patch, Mock
-from curry_quest.abilities import BreakObstaclesAbility
+from curry_quest.abilities import BreakObstaclesAbility, PlayTheFluteAbility
 from curry_quest.config import Config
 from curry_quest.state_machine_context import StateMachineContext
+from curry_quest.statuses import Statuses
 from curry_quest.unit import Unit
 from curry_quest.unit_action import UnitActionContext
 from curry_quest.unit_traits import UnitTraits
@@ -29,18 +30,20 @@ class AbilityTestBase(unittest.TestCase):
         self._state_machine_context.does_action_succeed = self._does_action_succeed_mock
         self._state_machine_context._rng = self._rng
         unit_traits = UnitTraits()
-        unit_traits.base_luck = 10
-        unit_traits.base_hp = 30
         self._familiar = Unit(unit_traits, self._config.levels)
+        self._familiar.name = 'Familiar'
         self._state_machine_context.familiar = self._familiar
         self._enemy = Unit(unit_traits, self._config.levels)
-        self._enemy.luck = 1
+        self._enemy.name = 'Enemy'
         self._state_machine_context.start_battle(self._enemy)
         self._action_context = UnitActionContext()
         self._action_context.state_machine_context = self._state_machine_context
 
     def _call_select_target(self, caster, other_unit):
         return self._sut.select_target(caster, other_unit)
+
+    def _call_can_use(self):
+        return self._sut.can_use(self._action_context)
 
     def _call_use(self):
         return self._sut.use(self._action_context)
@@ -49,6 +52,11 @@ class AbilityTestBase(unittest.TestCase):
         self._action_context.performer = performer or self._familiar
         self._action_context.target = target or self._enemy
         return self._call_use()
+
+
+class CanAlwaysUseTester:
+    def test_can_use(self):
+        self.assertEqual(self._call_can_use(), (True, ''))
 
 
 def create_ability_tester_class(
@@ -79,7 +87,8 @@ class BreakObstaclesAbilityTest(
             select_target_tester=OtherUnitTargetTester,
             can_target_self=False,
             can_target_other_unit=True,
-            can_have_no_target=True)):
+            can_have_no_target=True),
+        CanAlwaysUseTester):
 
     def _create_ability(self):
         return BreakObstaclesAbility()
@@ -107,6 +116,35 @@ class BreakObstaclesAbilityTest(
             attacker=self._enemy,
             defender=self._familiar)
         physical_attack_executor_mock.set_weapon_damage.assert_called_with(9)
+
+
+class PlayTheFluteAbilityTest(
+        create_ability_tester_class(
+            mp_cost=4,
+            select_target_tester=OtherUnitTargetTester,
+            can_target_self=False,
+            can_target_other_unit=True,
+            can_have_no_target=True),
+        CanAlwaysUseTester):
+
+    def _create_ability(self):
+        return PlayTheFluteAbility()
+
+    def test_when_used_on_enemy_then_it_gets_seal_status(self):
+        self._test_use_ability(target=self._enemy)
+        self.assertFalse(self._familiar.has_any_status())
+        self.assertTrue(self._enemy.has_status(Statuses.Seal))
+
+    def test_when_used_on_familiar_then_it_gets_seal_status(self):
+        self._test_use_ability(target=self._familiar)
+        self.assertFalse(self._enemy.has_any_status())
+        self.assertTrue(self._familiar.has_status(Statuses.Seal))
+
+    def test_response_when_used_on_enemy(self):
+        self.assertEqual(self._test_use_ability(target=self._enemy), 'Enemy\'s magic is sealed.')
+
+    def test_response_when_used_on_familiar(self):
+        self.assertEqual(self._test_use_ability(target=self._familiar), 'Your magic is sealed.')
 
 
 if __name__ == '__main__':

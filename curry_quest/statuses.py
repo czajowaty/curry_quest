@@ -17,3 +17,4 @@ class Statuses(enum.Flag):
     FireReflect = auto()
     Reflect = auto()
     WindReflect = auto()
+    Seal = auto()

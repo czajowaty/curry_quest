@@ -1,15 +1,14 @@
-from unittest.mock import Mock, create_autospec, patch
+from unittest.mock import Mock, patch
 from curry_quest.config import Config
 from curry_quest.genus import Genus
 from curry_quest.levels_config import Levels
-from curry_quest.spell_handler import SpellHandler
 from curry_quest.spells_descriptor import create_spells_traits
 from curry_quest.state_machine_context import StateMachineContext
 from curry_quest.stats_calculator import StatsCalculator
 from curry_quest.statuses import Statuses
 from curry_quest.talents import Talents
 from curry_quest.spell_traits import SpellTraits
-from curry_quest.spell_cast_unit_action import SpellCastContext, SpellCastActionHandler
+from curry_quest.spell_cast_unit_action import SpellCastContext
 from curry_quest.unit_traits import UnitTraits
 from curry_quest.unit import Unit
 import functools
@@ -1394,126 +1393,6 @@ class LoGraveTest(SpellTestBase, GraveTester):
     @classmethod
     def _spell_selector(cls):
         return 'Grave', Genus.Wind
-
-
-class ReflectTest(unittest.TestCase):
-    def setUp(self):
-        self._familiar = Unit(UnitTraits(), Levels())
-        self._familiar.name = 'familiar'
-        self._enemy = Unit(UnitTraits(), Levels())
-        self._enemy.name = 'enemy'
-        self._spell_handler = create_autospec(spec=SpellHandler)
-        self._state_machine_context = StateMachineContext(Config())
-        self._state_machine_context.familiar = self._familiar
-        self._spell_traits = SpellTraits()
-        self._spell_traits.name = 'test_spell'
-        self._spell_traits.handler = self._spell_handler
-        self._spell_cast_context = SpellCastContext(spell_level=1)
-        self._spell_cast_context.performer = self._familiar
-        self._spell_cast_context.target = self._enemy
-        self._spell_cast_context.reflected_target = self._familiar
-        self._spell_cast_context.state_machine_context = self._state_machine_context
-        self._spell_cast_action_handler = SpellCastActionHandler(self._spell_traits)
-
-    def _test_spell_cast(self, caster=None, target=None, reflected_target=None, spell_cast_response: str=''):
-        recorded_caster = None
-        recorded_target = None
-
-        def record_caster_and_target(spell_cast_context: SpellCastContext):
-            nonlocal recorded_caster
-            nonlocal recorded_target
-            recorded_caster = spell_cast_context.performer  # @UnusedVariable
-            recorded_target = spell_cast_context.target  # @UnusedVariable
-            return spell_cast_response
-
-        self._spell_cast_context.performer = caster or self._familiar
-        self._spell_cast_context.target = target or self._enemy
-        self._spell_cast_context.reflected_target = reflected_target or self._familiar
-        self._spell_handler.select_target.return_value = target
-        self._spell_handler.cast.side_effect = record_caster_and_target
-        response = self._spell_cast_action_handler.perform(self._spell_cast_context)
-        return response, recorded_caster, recorded_target
-
-    def _test_spell_reflect(self, caster_genus: Genus, target_status: Statuses, is_reflected: bool):
-        self._familiar.genus = caster_genus
-        self._enemy.set_status(target_status)
-        response, caster, target = self._test_spell_cast(target=self._enemy, reflected_target=self._familiar)
-        self.assertIs(caster, self._familiar)
-        self.assertIs(target, self._familiar if is_reflected else self._enemy)
-        return response
-
-    def test_when_target_has_fire_reflect_status_then_fire_spell_is_reflected_at_other_unit(self):
-        self._test_spell_reflect(caster_genus=Genus.Fire, target_status=Statuses.FireReflect, is_reflected=True)
-
-    def test_when_target_has_reflect_status_then_fire_spell_is_reflected_at_other_unit(self):
-        self._test_spell_reflect(caster_genus=Genus.Fire, target_status=Statuses.Reflect, is_reflected=True)
-
-    def test_when_target_has_wind_reflect_status_then_fire_spell_is_not_reflected_at_other_unit(self):
-        self._test_spell_reflect(caster_genus=Genus.Fire, target_status=Statuses.WindReflect, is_reflected=False)
-
-    def test_when_target_has_fire_reflect_status_then_water_spell_is_not_reflected_at_other_unit(self):
-        self._test_spell_reflect(caster_genus=Genus.Water, target_status=Statuses.FireReflect, is_reflected=False)
-
-    def test_when_target_has_reflect_status_then_water_spell_is_reflected_at_other_unit(self):
-        self._test_spell_reflect(caster_genus=Genus.Water, target_status=Statuses.Reflect, is_reflected=True)
-
-    def test_when_target_has_wind_reflect_status_then_water_spell_is_not_reflected_at_other_unit(self):
-        self._test_spell_reflect(caster_genus=Genus.Water, target_status=Statuses.WindReflect, is_reflected=False)
-
-    def test_when_target_has_fire_reflect_status_then_wind_spell_is_not_reflected_at_other_unit(self):
-        self._test_spell_reflect(caster_genus=Genus.Wind, target_status=Statuses.FireReflect, is_reflected=False)
-
-    def test_when_target_has_reflect_status_then_wind_spell_is_reflected_at_other_unit(self):
-        self._test_spell_reflect(caster_genus=Genus.Wind, target_status=Statuses.Reflect, is_reflected=True)
-
-    def test_when_target_has_wind_reflect_status_then_wind_spell_is_reflected_at_other_unit(self):
-        self._test_spell_reflect(caster_genus=Genus.Wind, target_status=Statuses.WindReflect, is_reflected=True)
-
-    def test_when_target_has_fire_reflect_status_then_non_elemental_spell_is_not_reflected_at_other_unit(self):
-        self._test_spell_reflect(caster_genus=Genus.Empty, target_status=Statuses.FireReflect, is_reflected=False)
-
-    def test_when_target_has_reflect_status_then_non_elemental_spell_is_reflected_at_other_unit(self):
-        self._test_spell_reflect(caster_genus=Genus.Empty, target_status=Statuses.Reflect, is_reflected=True)
-
-    def test_when_target_has_wind_reflect_status_then_non_elemental_spell_is_not_reflected_at_other_unit(self):
-        self._test_spell_reflect(caster_genus=Genus.Empty, target_status=Statuses.WindReflect, is_reflected=False)
-
-    def _test_spell_reflect_response(self, caster, target, spell_cast_response):
-        target.set_status(Statuses.Reflect)
-        response, _, _ = self._test_spell_cast(
-            caster=caster,
-            target=target,
-            reflected_target=self._enemy if self._familiar is target else self._familiar,
-            spell_cast_response=spell_cast_response)
-        return response
-
-    def test_reflected_spell_response_when_spell_is_casted_by_familiar_on_itself(self):
-        response = self._test_spell_reflect_response(
-            caster=self._familiar,
-            target=self._familiar,
-            spell_cast_response='CASTED')
-        self.assertEqual(response, 'You cast test_spell on yourself. It is reflected at enemy. CASTED')
-
-    def test_reflected_spell_response_when_spell_is_casted_by_familiar_on_enemy(self):
-        response = self._test_spell_reflect_response(
-            caster=self._familiar,
-            target=self._enemy,
-            spell_cast_response='CASTED')
-        self.assertEqual(response, 'You cast test_spell on enemy. It is reflected back at you. CASTED')
-
-    def test_reflected_spell_response_when_spell_is_casted_by_enemy_on_familiar(self):
-        response = self._test_spell_reflect_response(
-            caster=self._enemy,
-            target=self._familiar,
-            spell_cast_response='CASTED')
-        self.assertEqual(response, 'Enemy casts test_spell on you. It is reflected back at enemy. CASTED')
-
-    def test_reflected_spell_response_when_spell_is_casted_by_enemy_on_itself(self):
-        response = self._test_spell_reflect_response(
-            caster=self._enemy,
-            target=self._enemy,
-            spell_cast_response='CASTED')
-        self.assertEqual(response, 'Enemy casts test_spell on itself. It is reflected at you. CASTED')
 
 
 if __name__ == '__main__':

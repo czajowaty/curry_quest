@@ -6,6 +6,7 @@ import items_test
 import physical_attack_executor_test
 import physical_attack_unit_action_test
 import save_load_state_test
+import spell_cast_action_handler_test
 import spells_test
 import state_battle_test
 import state_item_test
@@ -23,6 +24,7 @@ def suite():
         physical_attack_executor_test,
         physical_attack_unit_action_test,
         save_load_state_test,
+        spell_cast_action_handler_test,
         spells_test,
         state_battle_test,
         state_item_test,

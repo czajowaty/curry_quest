@@ -32,6 +32,8 @@ class SpellCastActionHandler(MpRequiringActionHandler):
         caster_words = spell_cast_context.performer_words
         if not caster.has_spell():
             return False, f'{caster_words.name.capitalize()} {caster_words.es_verb("do")} not have a spell.'
+        if caster.has_status(Statuses.Seal):
+            return False, f'{caster_words.possessive_name.capitalize()} magic is sealed.'
         return self._spell_handler.can_cast(spell_cast_context)
 
     def perform(self, spell_cast_context: SpellCastContext) -> str:
