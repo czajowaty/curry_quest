@@ -1,7 +1,9 @@
+import abilities_test
 import controller_test
 import curry_quest_test
 import item_use_unit_action_test
 import items_test
+import physical_attack_executor_test
 import physical_attack_unit_action_test
 import save_load_state_test
 import spells_test
@@ -13,10 +15,12 @@ import unittest
 
 def suite():
     test_modules = [
+        abilities_test,
         controller_test,
         curry_quest_test,
         item_use_unit_action_test,
         items_test,
+        physical_attack_executor_test,
         physical_attack_unit_action_test,
         save_load_state_test,
         spells_test,

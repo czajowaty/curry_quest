@@ -33,8 +33,14 @@ class DamageCalculator:
         self._attacker = attacker
         self._defender = defender
 
-    def physical_damage(self, damage_roll: DamageRoll, relative_height: RelativeHeight, is_critical: bool) -> int:
+    def physical_damage(
+            self,
+            damage_roll: DamageRoll,
+            relative_height: RelativeHeight,
+            is_critical: bool,
+            weapon_damage=0) -> int:
         base_damage = 2 * self._attacker.attack + damage_roll.value
+        base_damage += 2 * weapon_damage
         combat_advantage = relative_height.value
         if self._does_defender_has_elemental_protection_against_attacker():
             base_damage //= 4

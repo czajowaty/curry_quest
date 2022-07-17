@@ -1397,16 +1397,6 @@ class LoGraveTest(SpellTestBase, GraveTester):
 
 
 class ReflectTest(unittest.TestCase):
-    class TestSpellCastHandler(SpellCastActionHandler):
-        def select_target(self, caster, other_unit):
-            SpellCastActionHandler.select_target(self, caster, other_unit)
-
-        def can_cast(self, spell_cast_context: SpellCastContext):
-            return True, ''
-
-        def cast(self, spell_cast_context: SpellCastContext):
-            SpellCastActionHandler.cast(self, spell_cast_context)
-
     def setUp(self):
         self._familiar = Unit(UnitTraits(), Levels())
         self._familiar.name = 'familiar'
@@ -1432,8 +1422,8 @@ class ReflectTest(unittest.TestCase):
         def record_caster_and_target(spell_cast_context: SpellCastContext):
             nonlocal recorded_caster
             nonlocal recorded_target
-            recorded_caster = spell_cast_context.performer
-            recorded_target = spell_cast_context.target
+            recorded_caster = spell_cast_context.performer  # @UnusedVariable
+            recorded_target = spell_cast_context.target  # @UnusedVariable
             return spell_cast_response
 
         self._spell_cast_context.performer = caster or self._familiar
