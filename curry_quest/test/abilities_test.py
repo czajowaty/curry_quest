@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import patch, Mock
-from curry_quest.abilities import BreakObstaclesAbility, PlayTheFluteAbility
+from curry_quest.abilities import BreakObstaclesAbility, PlayTheFluteAbility, HypnotismAbility, BrainwashAbility
 from curry_quest.config import Config
 from curry_quest.state_machine_context import StateMachineContext
 from curry_quest.statuses import Statuses
@@ -89,7 +89,6 @@ class BreakObstaclesAbilityTest(
             can_target_other_unit=True,
             can_have_no_target=True),
         CanAlwaysUseTester):
-
     def _create_ability(self):
         return BreakObstaclesAbility()
 
@@ -126,7 +125,6 @@ class PlayTheFluteAbilityTest(
             can_target_other_unit=True,
             can_have_no_target=True),
         CanAlwaysUseTester):
-
     def _create_ability(self):
         return PlayTheFluteAbility()
 
@@ -145,6 +143,62 @@ class PlayTheFluteAbilityTest(
 
     def test_response_when_used_on_familiar(self):
         self.assertEqual(self._test_use_ability(target=self._familiar), 'Your magic is sealed.')
+
+
+class HypnotismAbilityTest(
+        create_ability_tester_class(
+            mp_cost=12,
+            select_target_tester=OtherUnitTargetTester,
+            can_target_self=False,
+            can_target_other_unit=True,
+            can_have_no_target=True),
+        CanAlwaysUseTester):
+    def _create_ability(self):
+        return HypnotismAbility()
+
+    def test_when_used_on_enemy_then_it_gets_sleep_status_for_16_turns(self):
+        self._test_use_ability(target=self._enemy)
+        self.assertFalse(self._familiar.has_any_status())
+        self.assertEqual(self._enemy.status_duration(Statuses.Sleep), {Statuses.Sleep: 16})
+
+    def test_when_used_on_familiar_then_it_gets_sleep_status_for_16_turns(self):
+        self._test_use_ability(target=self._familiar)
+        self.assertFalse(self._enemy.has_any_status())
+        self.assertEqual(self._familiar.status_duration(Statuses.Sleep), {Statuses.Sleep: 16})
+
+    def test_response_when_used_on_enemy(self):
+        self.assertEqual(self._test_use_ability(target=self._enemy), 'Enemy is put to sleep.')
+
+    def test_response_when_used_on_familiar(self):
+        self.assertEqual(self._test_use_ability(target=self._familiar), 'You are put to sleep.')
+
+
+class BrainwashAbilityTest(
+        create_ability_tester_class(
+            mp_cost=16,
+            select_target_tester=OtherUnitTargetTester,
+            can_target_self=False,
+            can_target_other_unit=True,
+            can_have_no_target=True),
+        CanAlwaysUseTester):
+    def _create_ability(self):
+        return BrainwashAbility()
+
+    def test_when_used_on_enemy_then_it_gets_confuse_status_for_16_turns(self):
+        self._test_use_ability(target=self._enemy)
+        self.assertFalse(self._familiar.has_any_status())
+        self.assertEqual(self._enemy.status_duration(Statuses.Confuse), {Statuses.Confuse: 16})
+
+    def test_when_used_on_familiar_then_it_gets_confuse_status_for_16_turns(self):
+        self._test_use_ability(target=self._familiar)
+        self.assertFalse(self._enemy.has_any_status())
+        self.assertEqual(self._familiar.status_duration(Statuses.Confuse), {Statuses.Confuse: 16})
+
+    def test_response_when_used_on_enemy(self):
+        self.assertEqual(self._test_use_ability(target=self._enemy), 'Enemy is confused.')
+
+    def test_response_when_used_on_familiar(self):
+        self.assertEqual(self._test_use_ability(target=self._familiar), 'You are confused.')
 
 
 if __name__ == '__main__':

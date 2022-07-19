@@ -1,3 +1,4 @@
+# TODO: add sleep status potential recovery on hit
 from curry_quest import commands
 from curry_quest.jsonable import JsonReaderHelper
 from curry_quest.item_use_unit_action import ItemUseActionHandler
