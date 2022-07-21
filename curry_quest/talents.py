@@ -27,6 +27,9 @@ class Talents(enum.Flag):
     def has(self, talents: '__class__') -> bool:
         return (self & talents) == talents
 
+    def has_any(self, talents: '__class__') -> bool:
+        return (self & talents) != Talents.Empty
+
     def clear(self, talents: '__class__'):
         self = self & (~talents)
 

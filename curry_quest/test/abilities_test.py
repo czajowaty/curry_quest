@@ -1,9 +1,11 @@
 import unittest
 from unittest.mock import patch, Mock
-from curry_quest.abilities import BreakObstaclesAbility, PlayTheFluteAbility, HypnotismAbility, BrainwashAbility
+from curry_quest.abilities import BreakObstaclesAbility, PlayTheFluteAbility, HypnotismAbility, BrainwashAbility,\
+    BarkLoudlyAbility, SpinAbility
 from curry_quest.config import Config
 from curry_quest.state_machine_context import StateMachineContext
 from curry_quest.statuses import Statuses
+from curry_quest.talents import Talents
 from curry_quest.unit import Unit
 from curry_quest.unit_action import UnitActionContext
 from curry_quest.unit_traits import UnitTraits
@@ -81,6 +83,91 @@ def create_ability_tester_class(
     return AbilityTester
 
 
+def create_static_success_chance_tester(success_chance):
+    class StaticSuccessChanceTester:
+        def test_success_chance(self):
+            self._test_use_ability()
+            self._does_action_succeed_mock.assert_called_once_with(success_chance)
+
+        def test_response_when_action_fails(self):
+            self._does_action_succeed_mock.return_value = False
+            self.assertEqual(self._test_use_ability(), 'It has no effect.')
+
+    return StaticSuccessChanceTester
+
+
+def create_status_immunity_tester(status, protective_talent):
+    class StatusImmunityTester:
+        def test_status_immunity_on_enemy(self):
+            self._enemy._talents = protective_talent
+            self._test_use_ability(target=self._enemy)
+            self.assertFalse(self._enemy.has_status(status))
+
+        def test_status_immunity_on_familiar(self):
+            self._familiar._talents = protective_talent
+            self._test_use_ability(target=self._familiar)
+            self.assertFalse(self._familiar.has_status(status))
+
+        def test_response_when_used_on_enemy_and_enemy_is_immune(self):
+            self._enemy._talents = protective_talent
+            self.assertEqual(self._test_use_ability(target=self._enemy), 'Enemy is immune.')
+
+        def test_response_when_used_on_familiar_and_familiar_is_immune(self):
+            self._familiar._talents = protective_talent
+            self.assertEqual(self._test_use_ability(target=self._familiar), 'You are immune.')
+
+    return StatusImmunityTester
+
+
+def create_applied_status_tester(
+        status: Statuses,
+        enemy_target_response: str,
+        familiar_target_response: str):
+    class AppliedStatusTester:
+        def test_when_used_on_enemy_then_it_gets_confuse_status_for_16_turns(self):
+            self._test_use_ability(target=self._enemy)
+            self.assertFalse(self._familiar.has_any_status())
+            self.assertTrue(self._enemy.has_status(status))
+
+        def test_when_used_on_familiar_then_it_gets_confuse_status_for_16_turns(self):
+            self._test_use_ability(target=self._familiar)
+            self.assertFalse(self._enemy.has_any_status())
+            self.assertTrue(self._familiar.has_status(status))
+
+        def test_response_when_used_on_enemy(self):
+            self.assertEqual(self._test_use_ability(target=self._enemy), enemy_target_response)
+
+        def test_response_when_used_on_familiar(self):
+            self.assertEqual(self._test_use_ability(target=self._familiar), familiar_target_response)
+
+    return AppliedStatusTester
+
+
+def create_applied_timed_status_tester(
+        status: Statuses,
+        duration: int,
+        enemy_target_response: str,
+        familiar_target_response: str):
+    class AppliedTimedStatusTester:
+        def test_when_used_on_enemy_then_it_gets_confuse_status_for_16_turns(self):
+            self._test_use_ability(target=self._enemy)
+            self.assertFalse(self._familiar.has_any_status())
+            self.assertEqual(self._enemy.status_duration(status), {status: duration})
+
+        def test_when_used_on_familiar_then_it_gets_confuse_status_for_16_turns(self):
+            self._test_use_ability(target=self._familiar)
+            self.assertFalse(self._enemy.has_any_status())
+            self.assertEqual(self._familiar.status_duration(status), {status: duration})
+
+        def test_response_when_used_on_enemy(self):
+            self.assertEqual(self._test_use_ability(target=self._enemy), enemy_target_response)
+
+        def test_response_when_used_on_familiar(self):
+            self.assertEqual(self._test_use_ability(target=self._familiar), familiar_target_response)
+
+    return AppliedTimedStatusTester
+
+
 class BreakObstaclesAbilityTest(
         create_ability_tester_class(
             mp_cost=4,
@@ -124,25 +211,14 @@ class PlayTheFluteAbilityTest(
             can_target_self=False,
             can_target_other_unit=True,
             can_have_no_target=True),
-        CanAlwaysUseTester):
+        CanAlwaysUseTester,
+        create_status_immunity_tester(status=Statuses.Seal, protective_talent=Talents.SpellProof),
+        create_applied_status_tester(
+            status=Statuses.Seal,
+            enemy_target_response='Enemy\'s magic is sealed.',
+            familiar_target_response='Your magic is sealed.')):
     def _create_ability(self):
         return PlayTheFluteAbility()
-
-    def test_when_used_on_enemy_then_it_gets_seal_status(self):
-        self._test_use_ability(target=self._enemy)
-        self.assertFalse(self._familiar.has_any_status())
-        self.assertTrue(self._enemy.has_status(Statuses.Seal))
-
-    def test_when_used_on_familiar_then_it_gets_seal_status(self):
-        self._test_use_ability(target=self._familiar)
-        self.assertFalse(self._enemy.has_any_status())
-        self.assertTrue(self._familiar.has_status(Statuses.Seal))
-
-    def test_response_when_used_on_enemy(self):
-        self.assertEqual(self._test_use_ability(target=self._enemy), 'Enemy\'s magic is sealed.')
-
-    def test_response_when_used_on_familiar(self):
-        self.assertEqual(self._test_use_ability(target=self._familiar), 'Your magic is sealed.')
 
 
 class HypnotismAbilityTest(
@@ -152,25 +228,16 @@ class HypnotismAbilityTest(
             can_target_self=False,
             can_target_other_unit=True,
             can_have_no_target=True),
-        CanAlwaysUseTester):
+        CanAlwaysUseTester,
+        create_static_success_chance_tester(0.5),
+        create_status_immunity_tester(status=Statuses.Sleep, protective_talent=Talents.SleepProof),
+        create_applied_timed_status_tester(
+            status=Statuses.Sleep,
+            duration=16,
+            enemy_target_response='Enemy is put to sleep.',
+            familiar_target_response='You are put to sleep.')):
     def _create_ability(self):
         return HypnotismAbility()
-
-    def test_when_used_on_enemy_then_it_gets_sleep_status_for_16_turns(self):
-        self._test_use_ability(target=self._enemy)
-        self.assertFalse(self._familiar.has_any_status())
-        self.assertEqual(self._enemy.status_duration(Statuses.Sleep), {Statuses.Sleep: 16})
-
-    def test_when_used_on_familiar_then_it_gets_sleep_status_for_16_turns(self):
-        self._test_use_ability(target=self._familiar)
-        self.assertFalse(self._enemy.has_any_status())
-        self.assertEqual(self._familiar.status_duration(Statuses.Sleep), {Statuses.Sleep: 16})
-
-    def test_response_when_used_on_enemy(self):
-        self.assertEqual(self._test_use_ability(target=self._enemy), 'Enemy is put to sleep.')
-
-    def test_response_when_used_on_familiar(self):
-        self.assertEqual(self._test_use_ability(target=self._familiar), 'You are put to sleep.')
 
 
 class BrainwashAbilityTest(
@@ -180,25 +247,54 @@ class BrainwashAbilityTest(
             can_target_self=False,
             can_target_other_unit=True,
             can_have_no_target=True),
-        CanAlwaysUseTester):
+        CanAlwaysUseTester,
+        create_static_success_chance_tester(0.25),
+        create_status_immunity_tester(status=Statuses.Confuse, protective_talent=Talents.Unbrainwashable),
+        create_applied_timed_status_tester(
+            status=Statuses.Confuse,
+            duration=16,
+            enemy_target_response='Enemy is confused.',
+            familiar_target_response='You are confused.')):
     def _create_ability(self):
         return BrainwashAbility()
 
-    def test_when_used_on_enemy_then_it_gets_confuse_status_for_16_turns(self):
-        self._test_use_ability(target=self._enemy)
-        self.assertFalse(self._familiar.has_any_status())
-        self.assertEqual(self._enemy.status_duration(Statuses.Confuse), {Statuses.Confuse: 16})
 
-    def test_when_used_on_familiar_then_it_gets_confuse_status_for_16_turns(self):
-        self._test_use_ability(target=self._familiar)
-        self.assertFalse(self._enemy.has_any_status())
-        self.assertEqual(self._familiar.status_duration(Statuses.Confuse), {Statuses.Confuse: 16})
+class BarkLoudlyAbilityTest(
+        create_ability_tester_class(
+            mp_cost=8,
+            select_target_tester=OtherUnitTargetTester,
+            can_target_self=False,
+            can_target_other_unit=True,
+            can_have_no_target=True),
+        CanAlwaysUseTester,
+        create_static_success_chance_tester(0.125),
+        create_status_immunity_tester(status=Statuses.Paralyze, protective_talent=Talents.BarkProof),
+        create_applied_timed_status_tester(
+            status=Statuses.Paralyze,
+            duration=4,
+            enemy_target_response='Enemy is paralyzed.',
+            familiar_target_response='You are paralyzed.')):
+    def _create_ability(self):
+        return BarkLoudlyAbility()
 
-    def test_response_when_used_on_enemy(self):
-        self.assertEqual(self._test_use_ability(target=self._enemy), 'Enemy is confused.')
 
-    def test_response_when_used_on_familiar(self):
-        self.assertEqual(self._test_use_ability(target=self._familiar), 'You are confused.')
+class SpinAbilityTest(
+        create_ability_tester_class(
+            mp_cost=8,
+            select_target_tester=OtherUnitTargetTester,
+            can_target_self=False,
+            can_target_other_unit=True,
+            can_have_no_target=True),
+        CanAlwaysUseTester,
+        create_static_success_chance_tester(0.25),
+        create_status_immunity_tester(status=Statuses.Confuse, protective_talent=Talents.ConfusionProof),
+        create_applied_timed_status_tester(
+            status=Statuses.Confuse,
+            duration=4,
+            enemy_target_response='Enemy is confused.',
+            familiar_target_response='You are confused.')):
+    def _create_ability(self):
+        return SpinAbility()
 
 
 if __name__ == '__main__':

@@ -271,7 +271,7 @@ class Unit(Jsonable):
             (status, self._timed_statuses[status])
             for status
             in list(Statuses)
-            if statuses & status)
+            if (statuses & status) and (status in self._timed_statuses))
 
     def has_boosted_stats(self) -> bool:
         return self.has_status(Statuses.StatsBoost)
