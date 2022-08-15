@@ -1,4 +1,3 @@
-# TODO: add sleep status potential recovery on hit
 from curry_quest import commands
 from curry_quest.jsonable import JsonReaderHelper
 from curry_quest.item_use_unit_action import ItemUseActionHandler
@@ -284,8 +283,6 @@ class StateBattlePhase(StateBattlePhaseBase):
         unit_to_act = self._acting_unit()
         if unit_to_act.has_status(Statuses.Poison):
             self._apply_poison_damage(unit_to_act)
-        elif unit_to_act.has_status(Statuses.Sleep):
-            pass
 
     def _apply_poison_damage(self, unit: Unit):
         poison_damage = (unit.max_hp + 15) // 16

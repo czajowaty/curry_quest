@@ -85,14 +85,28 @@ class PhysicalAttackExecutorTest(unittest.TestCase):
         self._familiar.set_status(Statuses.Blind)
         self._test_hit_accurracy(attacker=self._familiar, hit_accuracy=39/80)
 
+    def test_when_defender_has_invisible_status_then_hit_chance_is_cut_in_half(self):
+        self._familiar.luck = 40
+        self._enemy.set_status(Statuses.Invisible)
+        self._test_hit_accurracy(attacker=self._familiar, hit_accuracy=39/80)
+
+    def test_when_attacker_has_blind_status_and_defender_has_invisible_status_then_hit_chance_reduction_is_stacked(self):
+        self._familiar.luck = 40
+        self._familiar.set_status(Statuses.Blind)
+        self._enemy.set_status(Statuses.Invisible)
+        self._test_hit_accurracy(attacker=self._familiar, hit_accuracy=39/160)
+
     def _test_damage_calculator_args(
             self,
             attacker=None,
             defender=None,
             damage_roll=DamageRoll.Normal,
             critical_hit=False,
-            damage=0):
-        self._does_action_succeed_mock.side_effect = [True, critical_hit]
+            damage=0,
+            does_action_succeed_additional_return_values=[]):
+        does_action_succeed_return_value = [True, critical_hit]
+        does_action_succeed_return_value.extend(does_action_succeed_additional_return_values)
+        self._does_action_succeed_mock.side_effect = does_action_succeed_return_value
         with patch('curry_quest.physical_attack_executor.DamageCalculator') as DamageCalculatorMock:
             damage_calculator_mock = DamageCalculatorMock.return_value
             damage_calculator_mock.physical_damage.return_value = damage
@@ -161,6 +175,11 @@ class PhysicalAttackExecutorTest(unittest.TestCase):
         _, _, is_critical, _ = self._test_damage_calculator_call_args(critical_hit=True)
         self.assertTrue(is_critical)
 
+    def test_set_guaranteed_critical_ensures_that_attack_is_critical(self):
+        self._sut.set_guaranteed_critical()
+        _, _, is_critical, _ = self._test_damage_calculator_call_args(critical_hit=False)
+        self.assertTrue(is_critical)
+
     def test_weapon_damage(self):
         self._sut.set_weapon_damage(15)
         _, _, _, weapon_damage = self._test_damage_calculator_call_args(attacker=self._familiar, defender=self._enemy)
@@ -189,7 +208,62 @@ class PhysicalAttackExecutorTest(unittest.TestCase):
         self._test_damage_calculator_args(attacker=self._familiar, defender=self._enemy, damage=1, critical_hit=False)
         self.assertEqual(self._familiar.hp, 29)
 
-    def _test_attack_response(self, attacker, defender, damage, expected_response, critical_hit=False):
+    def test_when_defender_has_sleep_status_then_it_may_be_recovered(self):
+        self._enemy.set_timed_status(Statuses.Sleep, duration=4)
+        self._test_damage_calculator_args(
+            attacker=self._familiar,
+            defender=self._enemy,
+            does_action_succeed_additional_return_values=[True])
+        self.assertFalse(self._enemy.has_status(Statuses.Sleep))
+
+    def test_when_defender_has_sleep_status_then_it_may_not_be_recovered(self):
+        self._enemy.set_timed_status(Statuses.Sleep, duration=4)
+        self._test_damage_calculator_args(
+            attacker=self._familiar,
+            defender=self._enemy,
+            does_action_succeed_additional_return_values=[False])
+        self.assertTrue(self._enemy.has_status(Statuses.Sleep))
+
+    def test_when_defender_has_paralyze_status_then_it_may_be_recovered(self):
+        self._enemy.set_timed_status(Statuses.Paralyze, duration=4)
+        self._test_damage_calculator_args(
+            attacker=self._familiar,
+            defender=self._enemy,
+            does_action_succeed_additional_return_values=[True])
+        self.assertFalse(self._enemy.has_status(Statuses.Paralyze))
+
+    def test_when_defender_has_paralyze_status_then_it_may_not_be_recovered(self):
+        self._enemy.set_timed_status(Statuses.Paralyze, duration=4)
+        self._test_damage_calculator_args(
+            attacker=self._familiar,
+            defender=self._enemy,
+            does_action_succeed_additional_return_values=[False])
+        self.assertTrue(self._enemy.has_status(Statuses.Paralyze))
+
+    def test_when_defender_has_confuse_status_then_it_may_be_recovered(self):
+        self._enemy.set_timed_status(Statuses.Confuse, duration=4)
+        self._test_damage_calculator_args(
+            attacker=self._familiar,
+            defender=self._enemy,
+            does_action_succeed_additional_return_values=[True])
+        self.assertFalse(self._enemy.has_status(Statuses.Confuse))
+
+    def test_when_defender_has_confuse_status_then_it_may_not_be_recovered(self):
+        self._enemy.set_timed_status(Statuses.Confuse, duration=4)
+        self._test_damage_calculator_args(
+            attacker=self._familiar,
+            defender=self._enemy,
+            does_action_succeed_additional_return_values=[False])
+        self.assertTrue(self._enemy.has_status(Statuses.Confuse))
+
+    def _test_attack_response(
+            self,
+            attacker,
+            defender,
+            damage,
+            expected_response,
+            critical_hit=False,
+            does_action_succeed_additional_return_values=[]):
         self._familiar.hp = 30
         self._enemy.name = 'Monster'
         self._enemy.hp = 40
@@ -197,7 +271,8 @@ class PhysicalAttackExecutorTest(unittest.TestCase):
             attacker=attacker,
             defender=defender,
             damage=damage,
-            critical_hit=critical_hit)
+            critical_hit=critical_hit,
+            does_action_succeed_additional_return_values=does_action_succeed_additional_return_values)
         self.assertEqual(response, expected_response)
         return response
 
@@ -270,6 +345,58 @@ class PhysicalAttackExecutorTest(unittest.TestCase):
             damage=13,
             response='Monster hits dealing 13 damage. You have 17 HP left. An electrical shock runs through Monster\'s '
             'body dealing 3 damage. Monster has 37 HP left.')
+
+    def _test_debuff_recovery_response_for_familiar_attack(
+            self,
+            debuff: Statuses,
+            debuff_recovery_response: str,
+            debuffs_number=1):
+        self._enemy.set_timed_status(debuff, duration=4)
+        self._test_familiar_attack_response(
+            damage=5,
+            does_action_succeed_additional_return_values=[True] * debuffs_number,
+            response='You hit dealing 5 damage. Monster has 35 HP left.\n' + debuff_recovery_response)
+
+    def _test_debuff_recovery_response_for_enemy_attack(
+            self,
+            debuff: Statuses,
+            debuff_recovery_response: str,
+            debuffs_number=1):
+        self._familiar.set_timed_status(debuff, duration=4)
+        self._test_enemy_attack_response(
+            damage=5,
+            does_action_succeed_additional_return_values=[True] * debuffs_number,
+            response='Monster hits dealing 5 damage. You have 25 HP left.\n' + debuff_recovery_response)
+
+    def test_response_on_sleep_recovery_for_familiar_attack(self):
+        self._test_debuff_recovery_response_for_familiar_attack(Statuses.Sleep, 'Monster wakes up.')
+
+    def test_response_on_sleep_recovery_for_enemy_attack(self):
+        self._test_debuff_recovery_response_for_enemy_attack(Statuses.Sleep, 'You wake up.')
+
+    def test_response_on_paralyze_recovery_for_familiar_attack(self):
+        self._test_debuff_recovery_response_for_familiar_attack(Statuses.Paralyze, 'Monster\'s paralysis wears off.')
+
+    def test_response_on_paralyze_recovery_for_enemy_attack(self):
+        self._test_debuff_recovery_response_for_enemy_attack(Statuses.Paralyze, 'Your paralysis wears off.')
+
+    def test_response_on_confuse_recovery_for_familiar_attack(self):
+        self._test_debuff_recovery_response_for_familiar_attack(Statuses.Confuse, 'Monster is no longer confused.')
+
+    def test_response_on_confuse_recovery_for_enemy_attack(self):
+        self._test_debuff_recovery_response_for_enemy_attack(Statuses.Confuse, 'You are no longer confused.')
+
+    def test_response_on_combined_debuffs_recovery_for_familiar_attack(self):
+        self._test_debuff_recovery_response_for_familiar_attack(
+            Statuses.Sleep | Statuses.Paralyze | Statuses.Confuse,
+            'Monster wakes up.\nMonster\'s paralysis wears off.\nMonster is no longer confused.',
+            debuffs_number=3)
+
+    def test_response_on_combined_debuffs_recovery_for_enemy_attack(self):
+        self._test_debuff_recovery_response_for_enemy_attack(
+            Statuses.Sleep | Statuses.Paralyze | Statuses.Confuse,
+            'You wake up.\nYour paralysis wears off.\nYou are no longer confused.',
+            debuffs_number=3)
 
 
 if __name__ == '__main__':

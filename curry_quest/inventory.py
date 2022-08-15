@@ -17,6 +17,10 @@ class Inventory(Jsonable):
             self.add_item(ItemJsonLoader.from_json_object(item_object))
 
     @property
+    def capacity(self) -> int:
+        return self._capacity
+
+    @property
     def size(self) -> int:
         return len(self._items)
 

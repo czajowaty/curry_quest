@@ -1,8 +1,10 @@
 import unittest
 from unittest.mock import patch, Mock
 from curry_quest.abilities import BreakObstaclesAbility, PlayTheFluteAbility, HypnotismAbility, BrainwashAbility,\
-    BarkLoudlyAbility, SpinAbility
+    BarkLoudlyAbility, SpinAbility, DisappearAbility, GetSeriousAbility, AbductAbility, ChargedPunchAbility, \
+    FlyAbility, StealAbility
 from curry_quest.config import Config
+import curry_quest.items as items
 from curry_quest.state_machine_context import StateMachineContext
 from curry_quest.statuses import Statuses
 from curry_quest.talents import Talents
@@ -35,11 +37,13 @@ class AbilityTestBase(unittest.TestCase):
         self._familiar = Unit(unit_traits, self._config.levels)
         self._familiar.name = 'Familiar'
         self._state_machine_context.familiar = self._familiar
+        self._inventory = self._state_machine_context.inventory
         self._enemy = Unit(unit_traits, self._config.levels)
         self._enemy.name = 'Enemy'
         self._state_machine_context.start_battle(self._enemy)
         self._action_context = UnitActionContext()
         self._action_context.state_machine_context = self._state_machine_context
+        self._battle_context = self._state_machine_context.battle_context
 
     def _call_select_target(self, caster, other_unit):
         return self._sut.select_target(caster, other_unit)
@@ -149,12 +153,12 @@ def create_applied_timed_status_tester(
         enemy_target_response: str,
         familiar_target_response: str):
     class AppliedTimedStatusTester:
-        def test_when_used_on_enemy_then_it_gets_confuse_status_for_16_turns(self):
+        def test_when_used_on_enemy_then_it_gets_timed_status(self):
             self._test_use_ability(target=self._enemy)
             self.assertFalse(self._familiar.has_any_status())
             self.assertEqual(self._enemy.status_duration(status), {status: duration})
 
-        def test_when_used_on_familiar_then_it_gets_confuse_status_for_16_turns(self):
+        def test_when_used_on_familiar_then_it_gets_timed_status(self):
             self._test_use_ability(target=self._familiar)
             self.assertFalse(self._enemy.has_any_status())
             self.assertEqual(self._familiar.status_duration(status), {status: duration})
@@ -166,6 +170,17 @@ def create_applied_timed_status_tester(
             self.assertEqual(self._test_use_ability(target=self._familiar), familiar_target_response)
 
     return AppliedTimedStatusTester
+
+
+def create_no_target_response_tester(response: str, performed_by_familiar=True):
+    class NoTargetResponseTester:
+        def test_response_when_no_target(self):
+            self._action_context.performer = self._familiar if performed_by_familiar else self._enemy
+            self._action_context.target = None
+            self.assertEqual(self._call_use(), response)
+            
+    
+    return NoTargetResponseTester
 
 
 class BreakObstaclesAbilityTest(
@@ -216,7 +231,8 @@ class PlayTheFluteAbilityTest(
         create_applied_status_tester(
             status=Statuses.Seal,
             enemy_target_response='Enemy\'s magic is sealed.',
-            familiar_target_response='Your magic is sealed.')):
+            familiar_target_response='Your magic is sealed.'),
+        create_no_target_response_tester(response='It has no effect.')):
     def _create_ability(self):
         return PlayTheFluteAbility()
 
@@ -235,7 +251,8 @@ class HypnotismAbilityTest(
             status=Statuses.Sleep,
             duration=16,
             enemy_target_response='Enemy is put to sleep.',
-            familiar_target_response='You are put to sleep.')):
+            familiar_target_response='You are put to sleep.'),
+        create_no_target_response_tester(response='It has no effect.')):
     def _create_ability(self):
         return HypnotismAbility()
 
@@ -254,7 +271,8 @@ class BrainwashAbilityTest(
             status=Statuses.Confuse,
             duration=16,
             enemy_target_response='Enemy is confused.',
-            familiar_target_response='You are confused.')):
+            familiar_target_response='You are confused.'),
+        create_no_target_response_tester(response='It has no effect.')):
     def _create_ability(self):
         return BrainwashAbility()
 
@@ -273,7 +291,8 @@ class BarkLoudlyAbilityTest(
             status=Statuses.Paralyze,
             duration=4,
             enemy_target_response='Enemy is paralyzed.',
-            familiar_target_response='You are paralyzed.')):
+            familiar_target_response='You are paralyzed.'),
+        create_no_target_response_tester(response='It has no effect.')):
     def _create_ability(self):
         return BarkLoudlyAbility()
 
@@ -292,9 +311,255 @@ class SpinAbilityTest(
             status=Statuses.Confuse,
             duration=4,
             enemy_target_response='Enemy is confused.',
-            familiar_target_response='You are confused.')):
+            familiar_target_response='You are confused.'),
+        create_no_target_response_tester(response='It has no effect.')):
     def _create_ability(self):
         return SpinAbility()
+
+
+class DisappearAbilityTest(
+        create_ability_tester_class(
+            mp_cost=8,
+            select_target_tester=SelfTargetTester,
+            can_target_self=True,
+            can_target_other_unit=False,
+            can_have_no_target=False),
+        create_applied_timed_status_tester(
+            status=Statuses.Invisible,
+            duration=8,
+            enemy_target_response='Enemy disappears.',
+            familiar_target_response='You disappear.')):
+    def _create_ability(self):
+        return DisappearAbility()
+
+    def test_when_target_has_invisible_status_then_cannot_use(self):
+        self._action_context.target = self._enemy
+        self._enemy.set_status(Statuses.Invisible)
+        can_use, _ = self._call_can_use()
+        self.assertFalse(can_use)
+
+    def test_when_user_does_not_have_invisible_status_then_can_use(self):
+        self._action_context.target = self._enemy
+        self._enemy.clear_statuses()
+        can_use, _ = self._call_can_use()
+        self.assertTrue(can_use)
+
+
+class GetSeriousAbilityTest(
+        create_ability_tester_class(
+            mp_cost=16,
+            select_target_tester=OtherUnitTargetTester,
+            can_target_self=False,
+            can_target_other_unit=True,
+            can_have_no_target=True),
+        CanAlwaysUseTester):
+    def _create_ability(self):
+        return GetSeriousAbility()
+
+    def _test_physical_attack_executor_args(self, attacker=None, defender=None, response=''):
+        with patch('curry_quest.abilities.PhysicalAttackExecutor') as PhysicalAttackExecutorMock:
+            physical_attack_executor_mock = PhysicalAttackExecutorMock.return_value
+            physical_attack_executor_mock.execute.return_value = response
+            response = self._test_use_ability(performer=attacker, target=defender)
+            physical_attack_executor_mock.execute.assert_called_once()
+            return response, physical_attack_executor_mock, PhysicalAttackExecutorMock.call_args.args
+
+    def test_GetSerious_returns_response_from_PhysicalAttackExecutor(self):
+        response, _, _ = self._test_physical_attack_executor_args(response='Ability used.')
+        self.assertEqual(response, 'Ability used.')
+
+    def test_GetSerious_PhysicalAttackExecutor_creation_args(self):
+        _, _, creation_args = self._test_physical_attack_executor_args()
+        self.assertEqual(creation_args, (self._action_context,))
+
+    def test_GetSerious_guarantees_critical_hit(self):
+        _, physical_attack_executor_mock, _ = self._test_physical_attack_executor_args(
+            attacker=self._enemy,
+            defender=self._familiar)
+        physical_attack_executor_mock.set_guaranteed_critical.assert_called()
+
+
+class AbductAbilityTest(
+        create_ability_tester_class(
+            mp_cost=8,
+            select_target_tester=SelfTargetTester,
+            can_target_self=True,
+            can_target_other_unit=False,
+            can_have_no_target=False)):
+    def _create_ability(self):
+        return AbductAbility()
+
+    def test_when_used_by_enemy_then_cannot_use(self):
+        self._action_context.performer = self._enemy
+        can_use, _ = self._call_can_use()
+        self.assertFalse(can_use)
+
+    def test_when_used_by_familiar_then_can_use(self):
+        self._action_context.performer = self._familiar
+        can_use, _ = self._call_can_use()
+        self.assertTrue(can_use)
+
+    def _test_use_ability(self):
+        return super()._test_use_ability(performer=self._familiar, target=self._familiar)
+
+    def test_ability_finishes_the_battle_without_killing_an_enemy(self):
+        self._test_use_ability()
+        self.assertFalse(self._battle_context.enemy.is_dead())
+        self.assertTrue(self._battle_context.is_finished())
+
+    def test_ability_response_when_used_by_familiar(self):
+        self.assertEqual(self._test_use_ability(), 'You teleport away from the battle.')
+
+
+class ChargedPunchAbilityTest(
+        create_ability_tester_class(
+            mp_cost=8,
+            select_target_tester=OtherUnitTargetTester,
+            can_target_self=False,
+            can_target_other_unit=True,
+            can_have_no_target=True),
+        CanAlwaysUseTester):
+    def _create_ability(self):
+        return ChargedPunchAbility()
+
+    def _test_physical_attack_executor_args(self, attacker=None, defender=None, response=''):
+        with patch('curry_quest.abilities.PhysicalAttackExecutor') as PhysicalAttackExecutorMock:
+            physical_attack_executor_mock = PhysicalAttackExecutorMock.return_value
+            physical_attack_executor_mock.execute.return_value = response
+            response = self._test_use_ability(performer=attacker, target=defender)
+            physical_attack_executor_mock.execute.assert_called_once()
+            return response, physical_attack_executor_mock, PhysicalAttackExecutorMock.call_args.args
+
+    def test_ChargedPunch_returns_response_from_PhysicalAttackExecutor(self):
+        response, _, _ = self._test_physical_attack_executor_args(response='Ability used.')
+        self.assertEqual(response, 'Ability used.')
+
+    def test_ChargedPunch_PhysicalAttackExecutor_creation_args(self):
+        _, _, creation_args = self._test_physical_attack_executor_args()
+        self.assertEqual(creation_args, (self._action_context,))
+
+    def test_ChargedPunch_uses_8_as_weapon_damage(self):
+        _, physical_attack_executor_mock, _ = self._test_physical_attack_executor_args(
+            attacker=self._enemy,
+            defender=self._familiar)
+        physical_attack_executor_mock.set_weapon_damage.assert_called_with(8)
+
+
+class FlyAbilityTest(
+        create_ability_tester_class(
+            mp_cost=16,
+            select_target_tester=SelfTargetTester,
+            can_target_self=True,
+            can_target_other_unit=False,
+            can_have_no_target=False)):
+    def _create_ability(self):
+        return FlyAbility()
+
+    def test_when_used_by_enemy_then_cannot_use(self):
+        self._action_context.performer = self._enemy
+        can_use, _ = self._call_can_use()
+        self.assertFalse(can_use)
+
+    def test_when_used_by_familiar_with_level_same_as_floor_then_cannot_use(self):
+        self._familiar.level = 5
+        self._state_machine_context.floor = 5
+        self._action_context.performer = self._familiar
+        can_use, _ = self._call_can_use()
+        self.assertFalse(can_use)
+
+    def test_when_used_by_familiar_with_level_higher_than_floor_then_can_use(self):
+        self._familiar.level = 5
+        self._state_machine_context.floor = 4
+        self._action_context.performer = self._familiar
+        can_use, _ = self._call_can_use()
+        self.assertTrue(can_use)
+
+    def _test_use_ability(self):
+        return super()._test_use_ability(performer=self._familiar, target=self._familiar)
+
+    def test_ability_finishes_the_battle_without_killing_an_enemy_and_sets_the_flag_to_go_to_next_floor(self):
+        self._test_use_ability()
+        self.assertFalse(self._battle_context.enemy.is_dead())
+        self.assertTrue(self._battle_context.is_finished())
+        self.assertTrue(self._state_machine_context.should_go_up_on_next_event_finished())
+
+    def test_ability_response_when_used_by_familiar(self):
+        self.assertEqual(self._test_use_ability(), 'You fly up to the next floor.')
+
+
+class StealAbilityTest(
+        create_ability_tester_class(
+            mp_cost=2,
+            select_target_tester=OtherUnitTargetTester,
+            can_target_self=False,
+            can_target_other_unit=True,
+            can_have_no_target=True),
+        CanAlwaysUseTester):
+    def _create_ability(self):
+        return StealAbility()
+
+    def test_no_target_response_from_familiar(self):
+        self._action_context.performer = self._familiar
+        self._action_context.target = None
+        self.assertEqual(self._call_use(), 'It has no effect.')
+
+    def test_no_target_response_from_enemy(self):
+        self._action_context.performer = self._enemy
+        self._action_context.target = None
+        self.assertEqual(self._call_use(), 'It has no effect.')
+
+    def test_response_when_used_on_enemy(self):
+        self.assertEqual(
+            self._test_use_ability(performer=self._familiar, target=self._enemy),
+            'Enemy has nothing to steal.')
+
+    def test_response_when_used_on_familiar_and_inventory_is_empty(self):
+        self.assertEqual(
+            self._test_use_ability(performer=self._enemy, target=self._familiar),
+            'You have nothing to steal.')
+
+    def test_response_when_used_on_familiar_and_item_is_stolen(self):
+        self._inventory.add_item(items.FireBall())
+        self._inventory.add_item(items.WindSeed())
+        self._inventory.add_item(items.MedicinalHerb())
+        self._rng.randrange.return_value = 1
+        self.assertEqual(
+            self._test_use_ability(performer=self._enemy, target=self._familiar),
+            'Enemy steals Wind Seed and runs away.')
+
+    def test_ability_when_used_on_familiar_with_items_in_inventory_and_item_is_stolen(self):
+        self._inventory.add_item(items.FireBall())
+        self._inventory.add_item(items.WindSeed())
+        self._inventory.add_item(items.MedicinalHerb())
+        self._rng.randrange.return_value = 1
+        self._test_use_ability(performer=self._enemy, target=self._familiar)
+        self._rng.randrange.assert_called_once_with(5)
+        self.assertEqual(self._inventory.size, 2)
+        self.assertIsInstance(self._inventory.peek_item(0), items.FireBall)
+        self.assertIsInstance(self._inventory.peek_item(1), items.MedicinalHerb)
+        self.assertFalse(self._battle_context.enemy.is_dead())
+        self.assertTrue(self._battle_context.is_finished())
+
+    def test_response_when_used_on_familiar_and_steal_fails(self):
+        self._inventory.add_item(items.FireBall())
+        self._inventory.add_item(items.WindSeed())
+        self._inventory.add_item(items.MedicinalHerb())
+        self._rng.randrange.return_value = 3
+        self.assertEqual(
+            self._test_use_ability(performer=self._enemy, target=self._familiar),
+            'Enemy fails to steal anything.')
+
+    def test_ability_when_used_on_familiar_with_items_in_inventory_and_steal_fails(self):
+        self._inventory.add_item(items.FireBall())
+        self._inventory.add_item(items.WindSeed())
+        self._inventory.add_item(items.MedicinalHerb())
+        self._rng.randrange.return_value = 3
+        self._test_use_ability(performer=self._enemy, target=self._familiar)
+        self._rng.randrange.assert_called_once_with(5)
+        self.assertEqual(self._inventory.size, 3)
+        self.assertIsInstance(self._inventory.peek_item(0), items.FireBall)
+        self.assertIsInstance(self._inventory.peek_item(1), items.WindSeed)
+        self.assertIsInstance(self._inventory.peek_item(2), items.MedicinalHerb)
 
 
 if __name__ == '__main__':

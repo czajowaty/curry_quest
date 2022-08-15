@@ -52,8 +52,12 @@ class StateEventFinished(StateBase):
     def on_enter(self):
         self._context.increase_turns_counter()
         self._context.decrease_weight_penalty_timers()
-        floor_collapsed = self._handle_earthquake()
-        self._context.generate_action(commands.GO_UP if floor_collapsed else commands.EVENT_FINISHED)
+        if self._context.should_go_up_on_next_event_finished():
+            self._context.clear_go_up_on_next_event_finished_flag()
+            self._context.generate_action(commands.GO_UP)
+        else:
+            floor_collapsed = self._handle_earthquake()
+            self._context.generate_action(commands.GO_UP if floor_collapsed else commands.EVENT_FINISHED)
 
     def _handle_earthquake(self):
         if self._context.is_earthquake_turn():

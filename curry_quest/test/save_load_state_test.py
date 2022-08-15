@@ -140,6 +140,11 @@ class SaveLoadStateTest(unittest.TestCase):
         context = self._test_save_load_state_machine_context()
         self.assertEqual(context.floor_turns_counter, 4)
 
+    def test_go_up_on_next_event_finished_flag_is_handled_correctly(self):
+        self._sut._context._go_up_on_next_event_finished_flag = True
+        context = self._test_save_load_state_machine_context()
+        self.assertTrue(context.should_go_up_on_next_event_finished)
+
     def test_inventory_is_handled_correctly(self):
         inventory = self._sut._context.inventory
         inventory.add_item(Pita())

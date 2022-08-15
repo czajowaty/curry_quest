@@ -16,6 +16,7 @@ class PhysicalAttackExecutor:
         self._unit_action_context = unit_action_context
         self._state_machine_context: StateMachineContext = unit_action_context.state_machine_context
         self._weapon_damage = 0
+        self._guaranteed_critical = False
 
     @property
     def attacker(self) -> Unit:
@@ -40,6 +41,9 @@ class PhysicalAttackExecutor:
     def set_weapon_damage(self, weapon_damage):
         self._weapon_damage = weapon_damage
 
+    def set_guaranteed_critical(self):
+        self._guaranteed_critical = True
+
     def execute(self) -> str:
         if not self._unit_action_context.has_target():
             return self._no_target_response()
@@ -51,6 +55,7 @@ class PhysicalAttackExecutor:
             damage, _, _ = attack_descriptor
             response += ' '
             response += self._deal_shock_damage(damage)
+        response += self._handle_potential_debuffs_recovery()
         return response
 
     def _no_target_response(self):
@@ -64,6 +69,8 @@ class PhysicalAttackExecutor:
         else:
             hit_chance = (self.attacker.luck - 1) / self.attacker.luck
             if self.attacker.has_status(Statuses.Blind):
+                hit_chance /= 2
+            if self.defender.has_status(Statuses.Invisible):
                 hit_chance /= 2
             return self._context.does_action_succeed(success_chance=hit_chance)
 
@@ -96,6 +103,8 @@ class PhysicalAttackExecutor:
             return RelativeHeight.Same
 
     def _select_whether_attack_is_critical(self) -> bool:
+        if self._guaranteed_critical:
+            return True
         divider = 2 if self.attacker.talents.has(Talents.Atrocious) else 64
         crit_chance = (self.attacker.luck // divider + 1) / 128
         return self._context.does_action_succeed(success_chance=crit_chance)
@@ -134,3 +143,27 @@ class PhysicalAttackExecutor:
         return f'An electrical shock runs through {attacker_words.possessive_name} body dealing ' \
             f'{shock_damage} damage. {attacker_words.name.capitalize()} {attacker_words.have_verb} ' \
             f'{self.attacker.hp} HP left.'
+
+    def _handle_potential_debuffs_recovery(self):
+        response = ''
+        for status, prepare_recovery_response in [
+                (Statuses.Sleep, self._sleep_recovery_response),
+                (Statuses.Paralyze, self._paralyze_recovery_response),
+                (Statuses.Confuse, self._confuse_recovery_response)]:
+            if self.defender.has_status(status) and self._context.does_action_succeed(0.25):
+                self.defender.clear_status(status)
+                response += '\n'
+                response += prepare_recovery_response()
+        return response
+
+    def _sleep_recovery_response(self):
+        defender_words = self.defender_words
+        return f'{defender_words.name.capitalize()} {defender_words.s_verb("wake")} up.'
+
+    def _paralyze_recovery_response(self):
+        defender_words = self.defender_words
+        return f'{defender_words.possessive_name.capitalize()} paralysis wears off.'
+
+    def _confuse_recovery_response(self):
+        defender_words = self.defender_words
+        return f'{defender_words.name.capitalize()} {defender_words.be_verb} no longer confused.'

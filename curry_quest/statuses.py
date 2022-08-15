@@ -18,3 +18,4 @@ class Statuses(enum.Flag):
     Reflect = auto()
     WindReflect = auto()
     Seal = auto()
+    Invisible = auto()

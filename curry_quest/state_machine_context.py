@@ -119,13 +119,14 @@ class StateMachineContext(Jsonable):
         self._floor = self.MIN_FLOOR
         self._familiar = None
         self._inventory = Inventory()
-        self._battle_context = None
+        self._battle_context: BattleContext = None
         self._item_buffer = None
         self._unit_buffer = None
         self._rng = self._services.rng()
         self._responses = []
         self._generated_action = None
         self._floor_turns_counter = 0
+        self._go_up_on_next_event_finished_flag = False
         self._event_weight_handlers = {}
         self._item_weight_handlers = {}
         self._character_weight_handlers = {}
@@ -147,7 +148,8 @@ class StateMachineContext(Jsonable):
             'inventory': self.inventory.to_json_object(),
             'rng_state': jsonpickle.encode(self.rng.getstate()),
             'responses': self._responses,
-            'floor_turns_counter': self._floor_turns_counter
+            'floor_turns_counter': self._floor_turns_counter,
+            'go_up_on_next_event_finished_flag': self._go_up_on_next_event_finished_flag
         }
         if self._familiar is not None:
             json_object['familiar'] = self._familiar.to_json_object()
@@ -212,6 +214,7 @@ class StateMachineContext(Jsonable):
         if generated_action_json_object is not None:
             self._read_generated_action_from_json_object(generated_action_json_object)
         self._floor_turns_counter = json_reader_helper.read_int_with_min('floor_turns_counter', min_value=0)
+        self._go_up_on_next_event_finished_flag = json_reader_helper.read_bool('go_up_on_next_event_finished_flag')
         self._read_weight_handlers_from_json_object(
             json_reader_helper,
             penalties_key='events_penalties',
@@ -468,6 +471,15 @@ class StateMachineContext(Jsonable):
     def _turns_until_turn(self, turn):
         result = turn - self._floor_turns_counter
         return result if result > 0 else 0
+
+    def should_go_up_on_next_event_finished(self) -> bool:
+        return self._go_up_on_next_event_finished_flag
+
+    def set_go_up_on_next_event_finished_flag(self):
+        self._go_up_on_next_event_finished_flag = True
+
+    def clear_go_up_on_next_event_finished_flag(self):
+        self._go_up_on_next_event_finished_flag = False
 
     def create_physical_attack_without_target(self, attacker: Unit):
         action_handler = PhysicalAttackUnitActionHandler(attacker.physical_attack_mp_cost)
