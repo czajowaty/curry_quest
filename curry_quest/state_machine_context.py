@@ -1,4 +1,5 @@
 import jsonpickle
+from curry_quest.ability_use_unit_action import AbilityUseActionHandler
 from curry_quest.errors import InvalidOperation
 from curry_quest.inventory import Inventory
 from curry_quest.item_use_unit_action import ItemUseActionHandler
@@ -512,6 +513,19 @@ class StateMachineContext(Jsonable):
         if target is not None:
             action_context.reflected_target = other_unit if target is caster else caster
         return action_handler, action_context
+
+    def create_ability_without_target(self, user: Unit):
+        action_handler = AbilityUseActionHandler(user.ability)
+        action_context = UnitActionContext()
+        action_context.performer = user
+        action_context.state_machine_context = self
+        return action_handler, action_context
+
+    def create_ability_with_target(self, user: Unit, other_unit: Unit):
+        return self._create_action_with_target(
+            self.create_ability_without_target,
+            user,
+            other_unit)
 
     def _create_action_with_target(self, create_action_without_target, performer, other_unit):
         action_handler, action_context = create_action_without_target(performer)

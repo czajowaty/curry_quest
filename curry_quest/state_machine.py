@@ -9,7 +9,8 @@ from curry_quest.spells import Spells
 from curry_quest.state_base import StateBase
 from curry_quest.state_battle import StateBattleEvent, StateStartBattle, StateBattlePreparePhase, StateBattleApproach, \
     StateBattlePhase, StateBattlePlayerTurn, StateEnemyStats, StateBattleAttack, StateBattleSkipTurn, \
-    StateBattleConfusedUnitTurn, StateBattleUseSpell, StateBattleUseItem, StateBattleTryToFlee, StateBattleEnemyTurn
+    StateBattleConfusedUnitTurn, StateBattleUseSpell, StateBattleUseAbility, StateBattleUseItem, StateBattleTryToFlee, \
+    StateBattleEnemyTurn
 from curry_quest.state_character import StateCharacterEvent, StateItemTrade, StateItemTradeAccepted, \
     StateItemTradeRejected, StateFamiliarTrade, StateFamiliarTradeAccepted, StateFamiliarTradeRejected, \
     StateEvolveFamiliar
@@ -109,6 +110,7 @@ class StateMachine(Jsonable):
             commands.SKIP_TURN: Transition.by_user(StateBattleSkipTurn),
             commands.ATTACK: Transition.by_user(StateBattleAttack),
             commands.USE_SPELL: Transition.by_user(StateBattleUseSpell),
+            commands.USE_ABILITY: Transition.by_user(StateBattleUseAbility),
             commands.USE_ITEM: Transition.by_user(StateBattleUseItem),
             commands.FLEE: Transition.by_user(StateBattleTryToFlee)
         },
@@ -118,6 +120,10 @@ class StateMachine(Jsonable):
         StateBattleUseSpell: {
             commands.BATTLE_ACTION_PERFORMED: Transition.by_admin(StateBattlePhase),
             commands.CANNOT_USE_SPELL: Transition.by_admin(StateBattlePlayerTurn)
+        },
+        StateBattleUseAbility: {
+            commands.BATTLE_ACTION_PERFORMED: Transition.by_admin(StateBattlePhase),
+            commands.CANNOT_USE_ABILITY: Transition.by_admin(StateBattlePlayerTurn)
         },
         StateBattleUseItem: {
             commands.BATTLE_PREPARE_PHASE_ACTION_PERFORMED: Transition.by_admin(StateBattlePreparePhase),

@@ -4,7 +4,6 @@ from curry_quest.unit_action import UnitActionContext
 from curry_quest.physical_attack_unit_action import PhysicalAttackExecutor
 from curry_quest.statuses import Statuses
 from curry_quest.talents import Talents
-from curry_quest.errors import InvalidOperation
 
 
 class BreakObstaclesAbility(Ability):
@@ -97,16 +96,11 @@ class ApplyStatusAbility(AbilityWithSuccessChance):
         return True, ''
 
     def _apply_ability_effect(self, action_context: UnitActionContext) -> str:
-        if not action_context.has_target():
-            return self._create_no_target_response(action_context)
         target = action_context.target
         if self._is_target_immune(target):
             return self._response_when_target_is_immune(action_context)
         self._apply_status_to_target(target)
         return self._create_use_response(action_context)
-
-    @abstractmethod
-    def _create_no_target_response(self, action_context: UnitActionContext) -> str: pass
 
     def _is_target_immune(self, target) -> bool:
         if self._protective_talent is Talents.Empty:
@@ -153,9 +147,6 @@ class PlayTheFluteAbility(ApplyStatusAbility):
     def mp_cost(self):
         return 4
 
-    def _create_no_target_response(self, action_context: UnitActionContext) -> str:
-        return 'It has no effect.'
-
     def _create_use_response(self, action_context: UnitActionContext) -> str:
         target_words = action_context.target_words
         return f'{target_words.possessive_name.capitalize()} magic is sealed.'
@@ -176,9 +167,6 @@ class HypnotismAbility(ApplyTimedStatusAbility):
     @property
     def mp_cost(self):
         return 12
-
-    def _create_no_target_response(self, action_context: UnitActionContext) -> str:
-        return 'It has no effect.'
 
     def _create_use_response(self, action_context: UnitActionContext) -> str:
         target_words = action_context.target_words
@@ -201,9 +189,6 @@ class BrainwashAbility(ApplyTimedStatusAbility):
     def mp_cost(self):
         return 16
 
-    def _create_no_target_response(self, action_context: UnitActionContext) -> str:
-        return 'It has no effect.'
-
     def _create_use_response(self, action_context: UnitActionContext) -> str:
         target_words = action_context.target_words
         return f'{target_words.name.capitalize()} {target_words.be_verb} confused.'
@@ -225,9 +210,6 @@ class BarkLoudlyAbility(ApplyTimedStatusAbility):
     def mp_cost(self):
         return 8
 
-    def _create_no_target_response(self, action_context: UnitActionContext) -> str:
-        return 'It has no effect.'
-
     def _create_use_response(self, action_context: UnitActionContext) -> str:
         target_words = action_context.target_words
         return f'{target_words.name.capitalize()} {target_words.be_verb} paralyzed.'
@@ -248,9 +230,6 @@ class SpinAbility(ApplyTimedStatusAbility):
     @property
     def mp_cost(self):
         return 8
-
-    def _create_no_target_response(self, action_context: UnitActionContext) -> str:
-        return 'It has no effect.'
 
     def _create_use_response(self, action_context: UnitActionContext) -> str:
         target_words = action_context.target_words
@@ -289,9 +268,6 @@ class DisappearAbility(ApplyTimedStatusAbility):
             target_words = action_context.target_words
             return False, f'{target_words.name.capitalize()} already {target_words.be_verb} invisible.'
         return True, ''
-
-    def _create_no_target_response(self, action_context: UnitActionContext) -> str:
-        raise InvalidOperation(f'{self.__class__.__name__}.{self._create_no_target_response}')
 
     def _create_use_response(self, action_context: UnitActionContext) -> str:
         target_words = action_context.target_words
@@ -454,15 +430,10 @@ class StealAbility(Ability):
         return True, ''
 
     def use(self, action_context: UnitActionContext) -> str:
-        if not action_context.has_target():
-            return self._no_target_response(action_context)
         if action_context.is_used_by_familiar():
             return self._steal_from_enemy(action_context)
         else:
             return self._steal_from_familiar(action_context)
-
-    def _no_target_response(self, action_context: UnitActionContext):
-        return 'It has no effect.'
 
     def _steal_from_enemy(self, action_context: UnitActionContext) -> str:
         return self._nothing_to_steal_response(action_context)
@@ -490,3 +461,31 @@ class StealAbility(Ability):
         performer_words = action_context.performer_words
         return f'{performer_words.name.capitalize()} {performer_words.s_verb("steal")} {stolen_item.name} and ' \
             f'{performer_words.s_verb("run")} away.'
+
+
+class Abilities:
+    @staticmethod
+    def _all_abilities():
+        return [
+            BreakObstaclesAbility(),
+            PlayTheFluteAbility(),
+            HypnotismAbility(),
+            BrainwashAbility(),
+            BarkLoudlyAbility(),
+            SpinAbility(),
+            DisappearAbility(),
+            GetSeriousAbility(),
+            AbductAbility(),
+            ChargedPunchAbility(),
+            FlyAbility(),
+            StealAbility()
+        ]
+
+    _ABILITIES_DICT = {ability.name: ability for ability in _all_abilities()}
+
+    @classmethod
+    def find_ability(cls, ability_name: str) -> Ability:
+        ability = cls._ABILITIES_DICT.get(ability_name)
+        if ability is None:
+            raise ValueError(f'Unknown ability "{ability_name}".')
+        return ability

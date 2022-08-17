@@ -178,6 +178,9 @@ class StateBattlePhaseBase(StateBattleBase):
     def _cast_spell(self, caster: Unit, other_unit: Unit):
         self._perform_action(self._context.create_spell_with_target, caster, other_unit)
 
+    def _use_ability(self, user: Unit, other_unit: Unit):
+        self._perform_action(self._context.create_ability_with_target, user, other_unit)
+
     def _perform_action(self, action_creator, performer: Unit, other_unit: Unit):
         action_handler, action_context = action_creator(performer, other_unit)
         response = action_handler.perform(action_context)
@@ -445,6 +448,25 @@ class StateBattleUseSpell(StateBattlePhaseBase):
             raise cls.PreConditionsNotMet(reason)
 
 
+class StateBattleUseAbility(StateBattlePhaseBase):
+    def on_enter(self):
+        familiar = self._context.familiar
+        self._use_ability(user=familiar, other_unit=self._battle_context.enemy)
+        self._context.generate_action(commands.BATTLE_ACTION_PERFORMED)
+
+    @classmethod
+    def _verify_preconditions(cls, context, parsed_args):
+        familiar: Unit = context.familiar
+        if not familiar.has_ability():
+            raise cls.PreConditionsNotMet('You do not have an ability.')
+        ability_use_action_handler, action_context = context.create_ability_with_target(
+            user=familiar,
+            other_unit=context._battle_context.enemy)
+        can_cast, reason = ability_use_action_handler.can_perform(action_context)
+        if not can_cast:
+            raise cls.PreConditionsNotMet(reason)
+
+
 class StateBattleUseItem(StateWithInventoryItemAndTarget):
     @property
     def _battle_context(self) -> BattleContext:
@@ -510,40 +532,36 @@ class StateBattleEnemyTurn(StateBattlePhaseBase):
         else:
             familiar = self._context.familiar
             enemy = self._battle_context.enemy
-
-            def cast_spell():
-                self._cast_spell(caster=enemy, other_unit=familiar)
-
-            def perform_physical_attack():
-                self._perform_physical_attack(attacker=enemy, defender=familiar)
-
-            action_with_weights = {}
             summed_actions_weights = 0
-            action_weight = self._calculate_unit_action_weight(
-                has_action=True,
-                create_action=self._context.create_physical_attack_with_target,
-                can_perform_action_weight=self._action_weights.physical_attack)
-            action_with_weights[perform_physical_attack] = action_weight
-            summed_actions_weights += action_weight
-            action_weight = self._calculate_unit_action_weight(
-                has_action=self._battle_context.enemy.has_spell(),
-                create_action=self._context.create_spell_with_target,
-                can_perform_action_weight=self._action_weights.spell)
-            summed_actions_weights += action_weight
+            action_with_weights = {}
+
+            def add_action(action, weight):
+                nonlocal summed_actions_weights
+                action_with_weights[action] = weight
+                summed_actions_weights += weight
+
+            add_action(
+                lambda: self._perform_physical_attack(attacker=enemy, defender=familiar),
+                self._calculate_unit_action_weight(
+                    has_action=True,
+                    create_action=self._context.create_physical_attack_with_target,
+                    can_perform_action_weight=self._action_weights.physical_attack))
+            add_action(
+                lambda: self._cast_spell(caster=enemy, other_unit=familiar),
+                self._calculate_unit_action_weight(
+                    has_action=enemy.has_spell(),
+                    create_action=self._context.create_spell_with_target,
+                    can_perform_action_weight=self._action_weights.spell))
+            add_action(
+                lambda: self._use_ability(user=enemy, other_unit=familiar),
+                self._calculate_unit_action_weight(
+                    has_action=enemy.has_ability(),
+                    create_action=self._context.create_ability_with_target,
+                    can_perform_action_weight=self._action_weights.ability))
             if summed_actions_weights == 0:
                 self._context.add_response(f'{enemy.name.capitalize()} cannot do anything and skips a turn.')
             else:
-                action = self._context.random_selection_with_weights(
-                    {
-                        perform_physical_attack: self._calculate_unit_action_weight(
-                            has_action=True,
-                            create_action=self._context.create_physical_attack_with_target,
-                            can_perform_action_weight=self._action_weights.physical_attack),
-                        cast_spell: self._calculate_unit_action_weight(
-                            has_action=self._battle_context.enemy.has_spell(),
-                            create_action=self._context.create_spell_with_target,
-                            can_perform_action_weight=self._action_weights.spell)
-                    })
+                action = self._context.random_selection_with_weights(action_with_weights)
                 action()
         self._context.generate_action(commands.BATTLE_ACTION_PERFORMED)
 
@@ -571,6 +589,7 @@ class StateBattleConfusedUnitTurn(StateBattlePhaseBase):
                 self._skip_turn_action_descriptor(),
                 self._physical_attack_action_descriptor(),
                 self._spell_cast_action_descriptor(),
+                self._ability_use_action_descriptor(),
                 self._use_item_action_descriptor()
             ]
             if descriptor is not None]
@@ -617,6 +636,20 @@ class StateBattleConfusedUnitTurn(StateBattlePhaseBase):
             target = action_context.target
             if target is not None:
                 action_context.reflected_target = self._waiting_unit() if target is acting_unit else acting_unit
+            return action_context
+
+        return action_handler.perform, create_action_context
+
+    def _ability_use_action_descriptor(self):
+        acting_unit = self._acting_unit()
+        if not acting_unit.has_ability():
+            return None
+        if not acting_unit.has_enough_mp_for_ability_use():
+            return None
+        action_handler, action_context = self._context.create_ability_without_target(user=acting_unit)
+        
+        def create_action_context():
+            self._fill_unit_action_context(action_context, action_handler)
             return action_context
 
         return action_handler.perform, create_action_context

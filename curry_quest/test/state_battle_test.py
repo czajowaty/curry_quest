@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import Mock, PropertyMock, call, create_autospec, patch
 from curry_quest import commands
+from curry_quest.ability import Ability
 from curry_quest.levels_config import Levels
 from curry_quest.physical_attack_unit_action import PhysicalAttackUnitActionHandler
 from curry_quest.spell_cast_unit_action import SpellCastContext
@@ -8,7 +9,7 @@ from curry_quest.spell_handler import SpellHandler
 from curry_quest.spell_traits import SpellTraits
 from curry_quest.state_battle import StateBattleEvent, StateStartBattle, StateBattlePreparePhase, StateBattleApproach, \
     StateBattlePhase, StateEnemyStats, StateBattleSkipTurn, StateBattleAttack, StateBattleUseSpell, \
-    StateBattleUseItem, StateBattleTryToFlee, StateBattleEnemyTurn, StateBattleConfusedUnitTurn
+    StateBattleUseAbility, StateBattleUseItem, StateBattleTryToFlee, StateBattleEnemyTurn, StateBattleConfusedUnitTurn
 from curry_quest.statuses import Statuses
 from curry_quest.talents import Talents
 from curry_quest.unit import Unit
@@ -763,6 +764,66 @@ class StateBattleUseSpellTest(StateBattleStartedTestBase):
         self.assertIs(spell_cast_context.target, self._familiar)
 
 
+class StateBattleUseAbilityTest(StateBattleStartedTestBase):
+    @classmethod
+    def _state_class(cls):
+        return StateBattleUseAbility
+
+    def setUp(self):
+        super().setUp()
+        self._ability = Mock(spec=Ability)
+        type(self._ability).name = PropertyMock(return_value='')
+        self._familiar.mp = 0
+        type(self._ability).mp_cost = PropertyMock(return_value=0)
+        self._ability.select_target.return_value = self._enemy
+        self._ability.can_use.return_value = True, ''
+        self._ability.use.return_value = ''
+        self._familiar.ability = self._ability
+
+    def test_creating_fails_when_familiar_does_not_have_ability(self):
+        self._familiar.ability = None
+        error_message = self._test_create_state_failure()
+        self.assertEqual(error_message, 'You do not have an ability.')
+
+    def test_creating_fails_when_familiar_does_not_have_enough_mp(self):
+        self._familiar.mp = 3
+        type(self._ability).mp_cost = PropertyMock(return_value=4)
+        error_message = self._test_create_state_failure()
+        self.assertEqual(error_message, 'You do not have enough MP.')
+
+    def test_creating_fails_when_ability_cannot_be_used(self):
+        self._ability.can_use.return_value = False, 'CANNOT USE'
+        error_message = self._test_create_state_failure()
+        self.assertEqual(error_message, 'CANNOT USE')
+
+    def _test_ability_use(self):
+        self._test_on_enter()
+        self._ability.use.assert_called_once()
+        return self._ability.use.call_args.args[0]
+
+    def test_action_on_ability_use(self):
+        self._test_ability_use()
+        self._assert_action(commands.BATTLE_ACTION_PERFORMED)
+
+    def test_response_on_ability(self):
+        type(self._ability).name = PropertyMock(return_value='ability_mock')
+        self._enemy.name = 'Monster'
+        self._ability.use.return_value = 'ability used.'
+        self._test_ability_use()
+        self._assert_responses('You use ability_mock on Monster. ability used.')
+
+    def test_mp_usage(self):
+        self._familiar.mp = 10
+        type(self._ability).mp_cost = PropertyMock(return_value=3)
+        self._test_ability_use()
+        self.assertEqual(self._familiar.mp, 7)
+
+    def test_ability_target(self):
+        self._ability.select_target.return_value = self._familiar
+        action_context = self._test_ability_use()
+        self.assertIs(action_context.target, self._familiar)
+
+
 class StateBattleUseItemTest(StateBattleStartedTestBase):
     @classmethod
     def _state_class(cls):
@@ -907,6 +968,43 @@ class StateBattleTryToFleeTest(StateBattleStartedTestBase):
         self.assertFalse(self._battle_context.is_finished())
 
 
+class AbilityStub(Ability):
+    def __init__(self, ability_name='', mp_cost=0, can_use=True):
+        self._ability_name = ability_name
+        self._mp_cost = mp_cost
+        self._can_use = can_use
+
+    @property
+    def name(self):
+        return self._ability_name
+
+    @property
+    def mp_cost(self):
+        return self._mp_cost
+
+    @mp_cost.setter
+    def mp_cost(self, value):
+        self._mp_cost = value
+
+    def select_target(self, user, other_unit):
+        return other_unit
+
+    def can_target_self(self) -> bool:
+        return True
+
+    def can_target_other_unit(self) -> bool:
+        return True
+
+    def can_have_no_target(self) -> bool:
+        return True
+
+    def can_use(self, action_context) -> tuple[bool, str]:
+        return self._can_use, ''
+
+    def use(self, action_context) -> str:
+        return ''
+
+
 class StateBattleEnemyTurnTest(StateBattleStartedTestBase):
     @classmethod
     def _state_class(cls):
@@ -985,7 +1083,7 @@ class StateBattleEnemyTurnTest(StateBattleStartedTestBase):
         self._test_spell_cast(spell_name='MonsterSpell', cast_response='Casted a spell.')
         self._assert_responses('Monster casts MonsterSpell on you. Casted a spell.')
 
-    def test_mp_usage(self):
+    def test_spell_mp_usage(self):
         self._enemy.mp = 60
         self._test_spell_cast(mp_cost=14)
         self.assertEqual(self._enemy.mp, 46)
@@ -1008,6 +1106,45 @@ class StateBattleEnemyTurnTest(StateBattleStartedTestBase):
         self.assertEqual(spell_cast_context.spell_level, 5)
         self.assertIs(spell_cast_context.reflected_target, self._familiar)
 
+    def _test_ability_use(self, ability_name='', mp_cost=0, use_response=''):
+        self._enemy_action_weights.physical_attack = 0
+        self._enemy_action_weights.spell = 0
+        self._enemy_action_weights.ability = 1
+        ability = AbilityStub(ability_name, mp_cost, can_use=True)
+        ability.can_use = Mock(return_value=(True, ''))
+        ability.use = Mock(return_value=use_response)
+        self._enemy.ability = ability
+        self._test_on_enter()
+        ability.use.assert_called_once()
+        return ability
+        
+    def test_action_on_ability(self):
+        self._test_ability_use()
+        self._assert_action(commands.BATTLE_ACTION_PERFORMED)
+
+    def test_response_on_ability(self):
+        self._test_ability_use(ability_name='AbilityStub', use_response='Used an ability.')
+        self._assert_responses('Monster uses AbilityStub on you. Used an ability.')
+
+    def test_ability_mp_usage(self):
+        self._enemy.mp = 50
+        self._test_ability_use(mp_cost=8)
+        self.assertEqual(self._enemy.mp, 42)
+
+    def test_ability_action_context_for_use(self):
+        ability = self._test_ability_use()
+        action_context = ability.use.call_args.args[0]
+        self.assertIs(action_context.performer, self._enemy)
+        self.assertIs(action_context.target, self._familiar)
+        self.assertIs(action_context.state_machine_context, self._context)
+
+    def test_ability_action_context_for_can_use(self):
+        ability = self._test_ability_use()
+        action_context = ability.can_use.call_args.args[0]
+        self.assertIs(action_context.performer, self._enemy)
+        self.assertIs(action_context.target, self._familiar)
+        self.assertIs(action_context.state_machine_context, self._context)
+
     def _test_enemy_action_selection(self, can_cast=True, spell_mp_cost=0):
         action_weights = []
 
@@ -1029,38 +1166,74 @@ class StateBattleEnemyTurnTest(StateBattleStartedTestBase):
         return action_weights
 
     def _create_action_weights_list(self, physical_attack, spell, ability):
-        return [physical_attack, spell]
+        return [physical_attack, spell, ability]
 
     def test_when_enemy_does_not_have_enough_mp_for_a_physical_attack_then_physical_attack_weight_will_be_0(self):
         self._enemy_unit_traits.physical_attack_mp_cost = 5
         self._enemy.mp = 4
         self._enemy_action_weights.physical_attack = 5
         self._enemy_action_weights.spell = 10
-        self._enemy_action_weights.ability = 15
+        self._enemy_action_weights.ability = 0
         action_weights = self._test_enemy_action_selection()
-        self.assertEqual(action_weights, self._create_action_weights_list(physical_attack=0, spell=10, ability=15))
+        self.assertEqual(action_weights, self._create_action_weights_list(physical_attack=0, spell=10, ability=0))
 
     def test_when_enemy_cannot_cast_a_spell_then_cast_spell_weight_will_be_0(self):
         self._enemy_action_weights.physical_attack = 5
         self._enemy_action_weights.spell = 10
-        self._enemy_action_weights.ability = 15
+        self._enemy_action_weights.ability = 0
         action_weights = self._test_enemy_action_selection(can_cast=False)
-        self.assertEqual(action_weights, self._create_action_weights_list(physical_attack=5, spell=0, ability=15))
+        self.assertEqual(action_weights, self._create_action_weights_list(physical_attack=5, spell=0, ability=0))
 
     def test_when_enemy_does_not_have_enough_mp_for_a_spell_then_cast_spell_weight_will_be_0(self):
         self._enemy.mp = 4
         self._enemy_action_weights.physical_attack = 5
         self._enemy_action_weights.spell = 10
-        self._enemy_action_weights.ability = 15
+        self._enemy_action_weights.ability = 0
         action_weights = self._test_enemy_action_selection(spell_mp_cost=5)
-        self.assertEqual(action_weights, self._create_action_weights_list(physical_attack=5, spell=0, ability=15))
+        self.assertEqual(action_weights, self._create_action_weights_list(physical_attack=5, spell=0, ability=0))
 
     def test_when_enemy_can_cast_and_has_enough_mp_for_a_spell_then_cast_spell_weight_will_be_taken_from_traits(self):
         self._enemy.mp = 5
         self._enemy_action_weights.physical_attack = 5
         self._enemy_action_weights.spell = 10
-        self._enemy_action_weights.ability = 15
+        self._enemy_action_weights.ability = 0
         action_weights = self._test_enemy_action_selection(can_cast=True, spell_mp_cost=5)
+        self.assertEqual(action_weights, self._create_action_weights_list(physical_attack=5, spell=10, ability=0))
+
+    def test_when_enemy_does_not_have_ability_then_ability_weight_will_be_0(self):
+        self._enemy.mp = 100
+        self._enemy.ability = None
+        self._enemy_action_weights.physical_attack = 5
+        self._enemy_action_weights.spell = 10
+        self._enemy_action_weights.ability = 15
+        action_weights = self._test_enemy_action_selection()
+        self.assertEqual(action_weights, self._create_action_weights_list(physical_attack=5, spell=10, ability=0))
+
+    def test_when_enemy_cannot_use_ability_then_ability_weight_will_be_0(self):
+        self._enemy.mp = 100
+        self._enemy.ability = AbilityStub(mp_cost=1, can_use=False)
+        self._enemy_action_weights.physical_attack = 5
+        self._enemy_action_weights.spell = 0
+        self._enemy_action_weights.ability = 15
+        action_weights = self._test_enemy_action_selection()
+        self.assertEqual(action_weights, self._create_action_weights_list(physical_attack=5, spell=0, ability=0))
+
+    def test_when_enemy_does_not_have_enough_mp_for_ability_then_ability_weight_will_be_0(self):
+        self._enemy.mp = 3
+        self._enemy.ability = AbilityStub(mp_cost=4, can_use=True)
+        self._enemy_action_weights.physical_attack = 5
+        self._enemy_action_weights.spell = 0
+        self._enemy_action_weights.ability = 15
+        action_weights = self._test_enemy_action_selection()
+        self.assertEqual(action_weights, self._create_action_weights_list(physical_attack=5, spell=0, ability=0))
+
+    def test_when_enemy_can_use_ability_and_has_enough_mp_for_it_then_ability_weight_will_be_taken_from_traits(self):
+        self._enemy.mp = 4
+        self._enemy.ability = AbilityStub(mp_cost=4, can_use=True)
+        self._enemy_action_weights.physical_attack = 5
+        self._enemy_action_weights.spell = 10
+        self._enemy_action_weights.ability = 15
+        action_weights = self._test_enemy_action_selection(can_cast=True, spell_mp_cost=2)
         self.assertEqual(action_weights, self._create_action_weights_list(physical_attack=5, spell=10, ability=15))
 
     def _call_on_enter_with_enemy_cannot_do_any_action(self):
@@ -1099,6 +1272,9 @@ class StateBattleConfusedUnitTurnTest(StateBattleStartedTestBase):
         self._familiar.set_spell(self._spell_traits, level=1)
         self._enemy.name = 'monster'
         self._enemy.set_spell(self._spell_traits, level=1)
+        self._ability = AbilityStub()
+        self._familiar.ability = self._ability
+        self._enemy.ability = self._ability
         self._choice_call_number = 0
         self._selected_action_index = 0
         self._action_selector_choices = []
@@ -1159,8 +1335,11 @@ class StateBattleConfusedUnitTurnTest(StateBattleStartedTestBase):
     def _select_spell_cast(self):
         self._selected_action_index = 2
 
-    def _select_item_use(self):
+    def _select_ability_use(self):
         self._selected_action_index = 3
+
+    def _select_item_use(self):
+        self._selected_action_index = 4
 
     def test_action_for_familiar_on_enter(self):
         self._test_familiar_turn_on_enter()
@@ -1363,6 +1542,96 @@ class StateBattleConfusedUnitTurnTest(StateBattleStartedTestBase):
         self.assertFalse(action_context.has_target())
         self.assertIs(action_context.reflected_target, None)
 
+    def _test_familiar_ability_use(self, use_response='', **kwargs):
+        return self._test_ability_use(use_response, on_enter_call=self._test_familiar_turn_on_enter, **kwargs)
+
+    def _test_enemy_ability_use(self, use_response='', **kwargs):
+        return self._test_ability_use(use_response, on_enter_call=self._test_enemy_turn_on_enter, **kwargs)
+
+    def _test_ability_use(
+            self,
+            use_response,
+            on_enter_call,
+            can_target_self=True,
+            can_target_other_unit=True,
+            can_have_no_target=True) -> UnitActionContext:
+        self._select_ability_use()
+        return self._test_mocked_unit_action_handler(
+            class_path='curry_quest.state_machine_context.AbilityUseActionHandler',
+            action_response=use_response,
+            on_enter_call=on_enter_call,
+            can_target_self=can_target_self,
+            can_target_other_unit=can_target_other_unit,
+            can_have_no_target=can_have_no_target)
+
+    def test_response_on_familiar_ability_use(self):
+        self._test_familiar_ability_use(use_response='Familiar ability use.')
+        self._assert_responses('Familiar ability use.')
+
+    def test_response_on_enemy_ability_use(self):
+        self._test_enemy_ability_use(use_response='Enemy ability use.')
+        self._assert_responses('Enemy ability use.')
+
+    def test_familiar_ability_use_target_choices_when_can_target_both(self):
+        self._test_enemy_ability_use(can_target_self=True, can_target_other_unit=True, can_have_no_target=True)
+        self._assert_second_choices([self._familiar, self._enemy, None])
+
+    def test_familiar_ability_use_target_choices_when_cannot_target_any(self):
+        self._test_familiar_ability_use(can_target_self=False, can_target_other_unit=False, can_have_no_target=True)
+        self.assertEqual(self._second_selector_choices, [None])
+
+    def test_enemy_ability_use_target_choices_when_can_target_both(self):
+        self._test_enemy_ability_use(can_target_self=True, can_target_other_unit=True, can_have_no_target=True)
+        self._assert_second_choices([self._familiar, self._enemy, None])
+
+    def test_enemy_ability_use_target_choices_when_cannot_target_any(self):
+        self._test_enemy_ability_use(can_target_self=False, can_target_other_unit=False, can_have_no_target=True)
+        self.assertEqual(self._second_selector_choices, [None])
+
+    def test_familiar_ability_use_action_context(self):
+        action_context = self._test_familiar_ability_use()
+        self.assertIs(action_context.performer, self._familiar)
+        self.assertIs(action_context.state_machine_context, self._context)
+
+    def test_enemy_ability_use_action_context(self):
+        action_context = self._test_enemy_ability_use()
+        self.assertIs(action_context.performer, self._enemy)
+        self.assertIs(action_context.state_machine_context, self._context)
+
+    def test_familiar_ability_use_familiar_target_selection(self):
+        self._selected_second_choice_index = 0
+        action_context = self._test_familiar_ability_use()
+        self.assertTrue(action_context.has_target())
+        self.assertIs(action_context.target, self._familiar)
+
+    def test_familiar_ability_use_enemy_target_selection(self):
+        self._selected_second_choice_index = 1
+        action_context = self._test_familiar_ability_use()
+        self.assertTrue(action_context.has_target())
+        self.assertIs(action_context.target, self._enemy)
+
+    def test_familiar_ability_use_empty_target_selection(self):
+        self._selected_second_choice_index = 2
+        action_context = self._test_familiar_ability_use()
+        self.assertFalse(action_context.has_target())
+
+    def test_enemy_ability_use_enemy_target_selection(self):
+        self._selected_second_choice_index = 0
+        action_context = self._test_enemy_ability_use()
+        self.assertTrue(action_context.has_target())
+        self.assertIs(action_context.target, self._enemy)
+
+    def test_enemy_ability_use_familiar_target_selection(self):
+        self._selected_second_choice_index = 1
+        action_context = self._test_enemy_ability_use()
+        self.assertTrue(action_context.has_target())
+        self.assertIs(action_context.target, self._familiar)
+
+    def test_enemy_ability_use_empty_target_selection(self):
+        self._selected_second_choice_index = 2
+        action_context = self._test_enemy_ability_use()
+        self.assertFalse(action_context.has_target())
+
     def _create_usable_item(self, item_name='', item_use_response=''):
         return self._create_item_mock(can_use=True, item_name=item_name, item_use_response=item_use_response)
 
@@ -1465,33 +1734,45 @@ class StateBattleConfusedUnitTurnTest(StateBattleStartedTestBase):
 
     def test_familiar_action_choices_when_everything_is_allowed(self):
         self._test_familiar_turn_on_enter()
-        self._assert_possible_actions_number(4)
+        self._assert_possible_actions_number(5)
 
     def test_familiar_action_choices_when_familiar_does_not_have_enough_mp_for_physical_attack(self):
         self._familiar_unit_traits.physical_attack_mp_cost = 3
         self._familiar.mp = 2
         self._test_familiar_turn_on_enter()
-        self._assert_possible_actions_number(3)
+        self._assert_possible_actions_number(4)
 
     def test_familiar_action_choices_when_familiar_has_no_spell(self):
         self._familiar.clear_spell()
         self._test_familiar_turn_on_enter()
-        self._assert_possible_actions_number(3)
+        self._assert_possible_actions_number(4)
 
     def test_familiar_action_choices_when_familiar_does_not_have_enough_mp_for_spell_cast(self):
         self._spell_traits.mp_cost = 6
         self._familiar.mp = 5
         self._test_familiar_turn_on_enter()
-        self._assert_possible_actions_number(3)
+        self._assert_possible_actions_number(4)
+
+    def test_familiar_action_choices_when_familiar_has_no_ability(self):
+        self._familiar.ability = None
+        self._test_familiar_turn_on_enter()
+        self._assert_possible_actions_number(4)
+
+    def test_familiar_action_choices_when_familiar_does_not_have_enough_mp_for_ability(self):
+        self._ability.mp_cost = 7
+        self._familiar.mp = 6
+        self._test_familiar_turn_on_enter()
+        self._assert_possible_actions_number(4)
 
     def test_familiar_action_choices_when_inventory_is_empty(self):
         self._clear_inventory()
         self._test_familiar_turn_on_enter()
-        self._assert_possible_actions_number(3)
+        self._assert_possible_actions_number(4)
 
     def test_familiar_action_choices_when_nothing_is_allowed(self):
         self._spell_traits.mp_cost = 4
         self._familiar_unit_traits.physical_attack_mp_cost = 4
+        self._ability.mp_cost = 5
         self._familiar.mp = 3
         self._clear_inventory()
         self._test_familiar_turn_on_enter()
@@ -1499,28 +1780,40 @@ class StateBattleConfusedUnitTurnTest(StateBattleStartedTestBase):
 
     def test_enemy_action_choices_when_everything_is_allowed(self):
         self._test_enemy_turn_on_enter()
-        self._assert_possible_actions_number(3)
+        self._assert_possible_actions_number(4)
 
     def test_enemy_action_choices_when_familiar_does_not_have_enough_mp_for_physical_attack(self):
         self._enemy_unit_traits.physical_attack_mp_cost = 3
         self._enemy.mp = 2
         self._test_enemy_turn_on_enter()
-        self._assert_possible_actions_number(2)
+        self._assert_possible_actions_number(3)
 
     def test_enemy_action_choices_when_familiar_has_no_spell(self):
         self._enemy.clear_spell()
         self._test_enemy_turn_on_enter()
-        self._assert_possible_actions_number(2)
+        self._assert_possible_actions_number(3)
 
     def test_enemy_action_choices_when_familiar_does_not_have_enough_mp_for_spell_cast(self):
         self._spell_traits.mp_cost = 6
         self._enemy.mp = 5
         self._test_enemy_turn_on_enter()
-        self._assert_possible_actions_number(2)
+        self._assert_possible_actions_number(3)
+
+    def test_enemy_action_choices_when_familiar_has_no_ability(self):
+        self._enemy.ability = None
+        self._test_enemy_turn_on_enter()
+        self._assert_possible_actions_number(3)
+
+    def test_enemy_action_choices_when_familiar_does_not_have_enough_mp_for_ability(self):
+        self._ability.mp_cost = 7
+        self._enemy.mp = 6
+        self._test_enemy_turn_on_enter()
+        self._assert_possible_actions_number(3)
 
     def test_enemy_action_choices_when_nothing_is_allowed(self):
         self._spell_traits.mp_cost = 4
         self._enemy_unit_traits.physical_attack_mp_cost = 4
+        self._ability.mp_cost = 5
         self._enemy.mp = 3
         self._test_enemy_turn_on_enter()
         self._assert_possible_actions_number(1)

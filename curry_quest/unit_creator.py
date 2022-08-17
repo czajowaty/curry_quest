@@ -1,3 +1,4 @@
+from curry_quest.abilities import Abilities
 from curry_quest.levels_config import Levels
 from curry_quest.spells import Spells
 from curry_quest.stats_calculator import StatsCalculator
@@ -24,6 +25,9 @@ class UnitCreator:
         if spell_name is not None:
             spell_traits = Spells.find_spell_traits(spell_name, unit.genus)
             unit.set_spell(spell_traits, level)
+        ability_name = self._unit_traits.ability_name
+        if ability_name is not None:
+            unit.ability = Abilities.find_ability(ability_name)
         if level > 0:
             unit.exp = levels.experience_for_next_level(level - 1)
         return unit

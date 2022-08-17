@@ -1,4 +1,5 @@
 import unittest
+from curry_quest.abilities import GetSeriousAbility
 from curry_quest.config import Config
 from curry_quest.errors import InvalidOperation
 from curry_quest.floor_descriptor import FloorDescriptor
@@ -9,7 +10,8 @@ from curry_quest.spells import Spells
 from curry_quest.state_base import StateBase
 from curry_quest.state_battle import StateBattleEvent, StateStartBattle, StateBattlePreparePhase, StateBattleApproach, \
     StateBattlePhase, StateBattlePlayerTurn, StateEnemyStats, StateBattleSkipTurn, StateBattleConfusedUnitTurn, \
-    StateBattleAttack, StateBattleUseSpell, StateBattleUseItem, StateBattleTryToFlee, StateBattleEnemyTurn
+    StateBattleAttack, StateBattleUseSpell, StateBattleUseAbility, StateBattleUseItem, StateBattleTryToFlee, \
+    StateBattleEnemyTurn
 from curry_quest.state_character import StateCharacterEvent, StateItemTrade, StateItemTradeAccepted, \
     StateItemTradeRejected, StateFamiliarTrade, StateFamiliarTradeAccepted, StateFamiliarTradeRejected, \
     StateEvolveFamiliar
@@ -308,6 +310,13 @@ class SaveLoadStateTest(unittest.TestCase):
         self.assertTrue(loaded_familiar.has_spell())
         self.assertEqual(loaded_familiar.spell_level, 7)
 
+    def test_familiar_ability_is_handled_correctly(self):
+        familiar = self._create_familiar()
+        familiar.ability = GetSeriousAbility()
+        loaded_familiar = self._test_save_load_familiar(familiar)
+        self.assertTrue(loaded_familiar.has_ability())
+        self.assertIsInstance(loaded_familiar.ability, GetSeriousAbility)
+
     def test_unit_buffer_is_handled_correctly(self):
         unit = Unit(self._ghosh_traits, self._game_config.levels)
         self._sut._context.buffer_unit(unit)
@@ -463,6 +472,14 @@ class SaveLoadStateTest(unittest.TestCase):
         self._context.start_battle(self._create_enemy())
         self._test_save_load_bare_state(StateBattleUseSpell)
 
+    def test_state_battle_use_ability_is_handled_correctly(self):
+        familiar = self._create_familiar()
+        familiar.ability = GetSeriousAbility()
+        familiar.mp = 100
+        self._context.familiar = familiar
+        self._context.start_battle(self._create_enemy())
+        self._test_save_load_bare_state(StateBattleUseAbility)
+        
     def test_item_in_state_battle_use_item_is_handled_correctly(self):
         self._context.inventory.add_item(Pita())
         self._context.inventory.add_item(HolyScroll())

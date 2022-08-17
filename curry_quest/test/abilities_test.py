@@ -1,8 +1,10 @@
+import inspect
 import unittest
 from unittest.mock import patch, Mock
-from curry_quest.abilities import BreakObstaclesAbility, PlayTheFluteAbility, HypnotismAbility, BrainwashAbility,\
-    BarkLoudlyAbility, SpinAbility, DisappearAbility, GetSeriousAbility, AbductAbility, ChargedPunchAbility, \
-    FlyAbility, StealAbility
+from curry_quest.ability import Ability
+from curry_quest.abilities import AbilityWithSuccessChance, ApplyStatusAbility, ApplyTimedStatusAbility, \
+    BreakObstaclesAbility, PlayTheFluteAbility, HypnotismAbility, BrainwashAbility, BarkLoudlyAbility, SpinAbility, \
+    DisappearAbility, GetSeriousAbility, AbductAbility, ChargedPunchAbility, FlyAbility, StealAbility, Abilities
 from curry_quest.config import Config
 import curry_quest.items as items
 from curry_quest.state_machine_context import StateMachineContext
@@ -172,17 +174,6 @@ def create_applied_timed_status_tester(
     return AppliedTimedStatusTester
 
 
-def create_no_target_response_tester(response: str, performed_by_familiar=True):
-    class NoTargetResponseTester:
-        def test_response_when_no_target(self):
-            self._action_context.performer = self._familiar if performed_by_familiar else self._enemy
-            self._action_context.target = None
-            self.assertEqual(self._call_use(), response)
-            
-    
-    return NoTargetResponseTester
-
-
 class BreakObstaclesAbilityTest(
         create_ability_tester_class(
             mp_cost=4,
@@ -231,8 +222,7 @@ class PlayTheFluteAbilityTest(
         create_applied_status_tester(
             status=Statuses.Seal,
             enemy_target_response='Enemy\'s magic is sealed.',
-            familiar_target_response='Your magic is sealed.'),
-        create_no_target_response_tester(response='It has no effect.')):
+            familiar_target_response='Your magic is sealed.')):
     def _create_ability(self):
         return PlayTheFluteAbility()
 
@@ -251,8 +241,7 @@ class HypnotismAbilityTest(
             status=Statuses.Sleep,
             duration=16,
             enemy_target_response='Enemy is put to sleep.',
-            familiar_target_response='You are put to sleep.'),
-        create_no_target_response_tester(response='It has no effect.')):
+            familiar_target_response='You are put to sleep.')):
     def _create_ability(self):
         return HypnotismAbility()
 
@@ -271,8 +260,7 @@ class BrainwashAbilityTest(
             status=Statuses.Confuse,
             duration=16,
             enemy_target_response='Enemy is confused.',
-            familiar_target_response='You are confused.'),
-        create_no_target_response_tester(response='It has no effect.')):
+            familiar_target_response='You are confused.')):
     def _create_ability(self):
         return BrainwashAbility()
 
@@ -291,8 +279,7 @@ class BarkLoudlyAbilityTest(
             status=Statuses.Paralyze,
             duration=4,
             enemy_target_response='Enemy is paralyzed.',
-            familiar_target_response='You are paralyzed.'),
-        create_no_target_response_tester(response='It has no effect.')):
+            familiar_target_response='You are paralyzed.')):
     def _create_ability(self):
         return BarkLoudlyAbility()
 
@@ -311,8 +298,7 @@ class SpinAbilityTest(
             status=Statuses.Confuse,
             duration=4,
             enemy_target_response='Enemy is confused.',
-            familiar_target_response='You are confused.'),
-        create_no_target_response_tester(response='It has no effect.')):
+            familiar_target_response='You are confused.')):
     def _create_ability(self):
         return SpinAbility()
 
@@ -498,16 +484,6 @@ class StealAbilityTest(
     def _create_ability(self):
         return StealAbility()
 
-    def test_no_target_response_from_familiar(self):
-        self._action_context.performer = self._familiar
-        self._action_context.target = None
-        self.assertEqual(self._call_use(), 'It has no effect.')
-
-    def test_no_target_response_from_enemy(self):
-        self._action_context.performer = self._enemy
-        self._action_context.target = None
-        self.assertEqual(self._call_use(), 'It has no effect.')
-
     def test_response_when_used_on_enemy(self):
         self.assertEqual(
             self._test_use_ability(performer=self._familiar, target=self._enemy),
@@ -560,6 +536,28 @@ class StealAbilityTest(
         self.assertIsInstance(self._inventory.peek_item(0), items.FireBall)
         self.assertIsInstance(self._inventory.peek_item(1), items.WindSeed)
         self.assertIsInstance(self._inventory.peek_item(2), items.MedicinalHerb)
+
+
+class AbilitiesTest(unittest.TestCase):
+    def test_all_abilities_can_be_found(self):
+        def is_ability_class(cls):
+            if not inspect.isclass(cls):
+                return False
+            if not issubclass(cls, Ability):
+                return False
+            return cls not in [Ability, AbilityWithSuccessChance, ApplyStatusAbility, ApplyTimedStatusAbility]
+        
+        import curry_quest.abilities
+
+        all_abilities = {cls().name: cls for _, cls in inspect.getmembers(curry_quest.abilities, is_ability_class)}
+        for ability_name, ability_class in all_abilities.items():
+            found_ability = Abilities.find_ability(ability_name)
+            self.assertIsNotNone(found_ability, f'No ability found for "{ability_name}"')
+            self.assertIsInstance(found_ability, ability_class)
+
+    def test_when_ability_cannot_be_found_ValueError_is_raised(self):
+        with self.assertRaises(ValueError):
+            Abilities.find_ability('Unknown ability')
 
 
 if __name__ == '__main__':

@@ -38,6 +38,7 @@ class Unit(Jsonable):
         self._timed_statuses: dict[Statuses, int] = {}
         self.clear_statuses()
         self.clear_spell()
+        self.ability = None
         self.exp = 0
 
     def to_json_object(self):
@@ -63,9 +64,12 @@ class Unit(Jsonable):
                 'base_name': self._spell_traits.base_name,
                 'level': self._spell_level
             }
+        if self.has_ability():
+            unit_json_object['ability'] = self._ability.name
         return unit_json_object
 
     def from_json_object(self, json_object):
+        from curry_quest.abilities import Abilities
         from curry_quest.spells import Spells
 
         json_reader_helper = JsonReaderHelper(json_object)
@@ -107,6 +111,9 @@ class Unit(Jsonable):
             self.set_spell(
                 Spells.find_spell_traits(spell_base_name, self.genus),
                 level=spell_json_reader_helper.read_int_with_min('level', min_value=1))
+        if 'ability' in json_object:
+            ability_name = json_reader_helper.read_string('ability')
+            self.ability = Abilities.find_ability(ability_name)
 
     def _raise_invalid_json(self, json_object, error_msg):
         raise InvalidJson(f'{error_msg} JSON object: {self._json_object}".')
@@ -342,15 +349,22 @@ class Unit(Jsonable):
         return self.has_enough_mp_for_action(self.spell_mp_cost)
 
     def has_ability(self) -> bool:
-        return False
+        return self._ability is not None
 
     @property
     def ability(self) -> Ability:
-        return None
+        return self._ability
+
+    @ability.setter
+    def ability(self, new_ability: Ability):
+        self._ability = new_ability
 
     @property
     def ability_mp_cost(self) -> int:
-        return 0
+        return self._ability.mp_cost
+
+    def has_enough_mp_for_ability_use(self) -> bool:
+        return self.has_enough_mp_for_action(self.ability_mp_cost)
 
     @property
     def exp(self):
@@ -497,6 +511,8 @@ class Unit(Jsonable):
             s += f', statuses: {self._statuses_to_string()}'
         if self.has_spell():
             s += f', spell: LVL {self.spell_level} {self.spell_traits.name} (MP cost: {self.spell_mp_cost})'
+        if self.has_ability():
+            s += f', ability: {self._ability.name} (MP cost: {self.ability_mp_cost})'
         s += f', EXP: {self.exp}'
         if not self.is_max_level():
             s += f' ({self.experience_for_next_level() - self.exp} more EXP to next LVL)'

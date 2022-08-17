@@ -34,6 +34,7 @@ class UnitTraits:
         self.physical_attack_mp_cost = 0
         self.native_spell_base_name: str = None
         self.dormant_spell_base_name: str = None
+        self.ability_name: str = None
         self.action_weights = self.ActionWeights()
         self.talents = Talents.Empty
         self.is_evolved = False
