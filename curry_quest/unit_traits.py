@@ -14,6 +14,7 @@ class UnitTraits:
             action_weights_copy = self.__class__()
             action_weights_copy.physical_attack = self.physical_attack
             action_weights_copy.spell = self.spell
+            action_weights_copy.ability = self.ability
             return action_weights_copy
 
     def __init__(self):

@@ -485,6 +485,8 @@ class Abilities:
 
     @classmethod
     def find_ability(cls, ability_name: str) -> Ability:
+        if ability_name is None:
+            return None
         ability = cls._ABILITIES_DICT.get(ability_name)
         if ability is None:
             raise ValueError(f'Unknown ability "{ability_name}".')

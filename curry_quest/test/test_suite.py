@@ -1,6 +1,8 @@
 import abilities_test
+import ability_use_unit_action_test
 import controller_test
 import curry_quest_test
+import hall_of_fame_test
 import item_use_unit_action_test
 import items_test
 import physical_attack_executor_test
@@ -17,8 +19,10 @@ import unittest
 def suite():
     test_modules = [
         abilities_test,
+        ability_use_unit_action_test,
         controller_test,
         curry_quest_test,
+        hall_of_fame_test,
         item_use_unit_action_test,
         items_test,
         physical_attack_executor_test,

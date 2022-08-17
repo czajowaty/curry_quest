@@ -1,4 +1,5 @@
 from curry_quest import Config
+from curry_quest.abilities import Abilities
 from curry_quest.spells import Spells
 from curry_quest.weight import WeightHandler
 
@@ -36,6 +37,12 @@ def print_units(units_traits):
             print(f"      Native genus: {dormant_spell_traits.native_genus}")
             print(f"      MP cost: {dormant_spell_traits.mp_cost}")
             print(f"      Cast handler: {dormant_spell_traits.handler}")
+        ability_name = unit_traits.ability_name
+        has_ability = ability_name is not None
+        if has_ability:
+            ability = Abilities.find_ability(ability_name)
+            print(f"    Ability: {ability.name}")
+            print(f"      MP cost: {ability.mp_cost}")
         print(f"    Action weights:")
         print(f"      Attack: {unit_traits.action_weights.physical_attack}")
         print(f"      Spell: {unit_traits.action_weights.spell}")

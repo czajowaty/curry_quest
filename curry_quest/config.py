@@ -1,5 +1,6 @@
 from json_config_parser import JsonConfigParser
 from collections.abc import Mapping, Sequence
+from curry_quest.abilities import Abilities
 from curry_quest.floor_descriptor import FloorDescriptor, Monster
 from curry_quest.genus import Genus
 from curry_quest.items import all_items
@@ -242,6 +243,7 @@ class Config:
             try:
                 action_weights.physical_attack = int(monster_action_weights_json['physical_attack'])
                 action_weights.spell = int(monster_action_weights_json['spell'])
+                action_weights.ability = int(monster_action_weights_json.get('ability', 0))
             except ValueError as exc:
                 self._invalid_config(f'{monster_action_weights_json}: {exc}')
             return action_weights
@@ -276,6 +278,7 @@ class Config:
                 unit_traits.physical_attack_mp_cost = self._parse_physical_attack_mp_cost(unit_json)
                 unit_traits.native_spell_base_name = unit_json.get('spell')
                 unit_traits.dormant_spell_base_name = unit_json.get('dormant_spell')
+                unit_traits.ability_name = unit_json.get('ability')
                 if 'action_weights' in unit_json:
                     unit_traits.action_weights = self._read_monster_action_weights(unit_json['action_weights'])
                 else:
@@ -416,6 +419,10 @@ class Config:
                     Spells.find_spell_category_traits(monster_trait.dormant_spell_base_name)
                 except ValueError as exc:
                     raise self.InvalidConfig(f'{monster_trait.name} - {spell_type} spell parsing error. {exc.args[0]}.')
+                try:
+                    Abilities.find_ability(monster_trait.ability_name)
+                except ValueError as exc:
+                    raise self.InvalidConfig(f'{monster_trait.name} - {exc.args[0]}.')
                 if monster_trait.does_evolve() and monster_trait.evolves_into not in self._config.monsters_traits:
                     raise self.InvalidConfig(
                         f'{monster_trait.name} - unknown monster to evolve to - {monster_trait.evolves_into}')
