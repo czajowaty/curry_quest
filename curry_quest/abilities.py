@@ -446,6 +446,9 @@ class StealAbility(Ability):
         inventory = action_context.state_machine_context.inventory
         if inventory.is_empty():
             return self._nothing_to_steal_response(action_context)
+        familiar = action_context.state_machine_context.familiar
+        if familiar.talents.has(Talents.ImmuneToStealing):
+            return self._steal_failed_response(action_context)
         selected_item_slot = action_context.rng.randrange(inventory.capacity)
         if selected_item_slot >= inventory.size:
             return self._steal_failed_response(action_context)

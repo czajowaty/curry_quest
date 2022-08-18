@@ -516,6 +516,15 @@ class StealAbilityTest(
         self.assertFalse(self._battle_context.enemy.is_dead())
         self.assertTrue(self._battle_context.is_finished())
 
+    def test_ability_when_used_on_familiar_with_items_in_inventory_and_familiar_has_ImmuneToStealing_talent(self):
+        self._familiar._talents = Talents.ImmuneToStealing
+        self._inventory.add_item(items.FireBall())
+        self._inventory.add_item(items.WindSeed())
+        self._inventory.add_item(items.MedicinalHerb())
+        self._rng.randrange.return_value = 1
+        self._test_use_ability(performer=self._enemy, target=self._familiar)
+        self.assertEqual(self._inventory.size, 3)
+
     def test_response_when_used_on_familiar_and_steal_fails(self):
         self._inventory.add_item(items.FireBall())
         self._inventory.add_item(items.WindSeed())
