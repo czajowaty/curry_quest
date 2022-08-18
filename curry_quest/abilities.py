@@ -316,7 +316,7 @@ class AbductAbility(Ability):
     def select_target(self, user, other_unit):
         return user
 
-    def can_target_self(self)->bool:
+    def can_target_self(self) -> bool:
         return True
 
     def can_target_other_unit(self) -> bool:
@@ -484,8 +484,6 @@ class Abilities:
             StealAbility()
         ]
 
-    _ABILITIES_DICT = {ability.name: ability for ability in _all_abilities()}
-
     @classmethod
     def find_ability(cls, ability_name: str) -> Ability:
         if ability_name is None:
@@ -494,3 +492,6 @@ class Abilities:
         if ability is None:
             raise ValueError(f'Unknown ability "{ability_name}".')
         return ability
+
+
+Abilities._ABILITIES_DICT = {ability.name: ability for ability in Abilities._all_abilities()}

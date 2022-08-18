@@ -555,7 +555,7 @@ class AbilitiesTest(unittest.TestCase):
             if not issubclass(cls, Ability):
                 return False
             return cls not in [Ability, AbilityWithSuccessChance, ApplyStatusAbility, ApplyTimedStatusAbility]
-        
+
         import curry_quest.abilities
 
         all_abilities = {cls().name: cls for _, cls in inspect.getmembers(curry_quest.abilities, is_ability_class)}
