@@ -229,7 +229,7 @@ class Unit(Jsonable):
 
     @property
     def attack(self):
-        multiplier = 2 if self.talents.has(Talents.StrengthIncreased) else 1
+        multiplier = 1.2 if self.talents.has(Talents.StrengthIncreased) else 1
         return int(self._attack * self._stat_factor() * multiplier)
 
     @attack.setter
@@ -238,7 +238,7 @@ class Unit(Jsonable):
 
     @property
     def defense(self):
-        multiplier = 2 if self.talents.has(Talents.Hard) else 1
+        multiplier = 1.2 if self.talents.has(Talents.Hard) else 1
         return int(self._defense * self._stat_factor() * multiplier)
 
     @defense.setter
