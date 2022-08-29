@@ -53,7 +53,7 @@ class StateCharacterEvent(StateBase):
         return (commands.EVENT_FINISHED, ()), 'She offers to patch you up. You are fully healed.'
 
     def _handle_nico_encounter(self):
-        return (commands.EVENT_FINISHED, ()), 'She gives you a lesson about culture and walks away.. '
+        return (commands.EVENT_FINISHED, ()), 'She gives you a lesson about culture and walks away...'
 
     def _handle_patty_encounter(self):
         self._context.familiar.set_status(Statuses.StatsBoost)
@@ -93,8 +93,9 @@ class StateCharacterEvent(StateBase):
             'She gazes upon you while mumbling incoherently. ' \
             'Suddenly she throws a mysterious potion at your familiar and something weird happens to it...'
 
-    def _handle_vivianne_encounter(self):
-        return (commands.EVENT_FINISHED, ()), 'She starts dancing. After watching for a while you leave.'
+    def _handle_vivian_encounter(self):
+        self._context.familiar.luck += 2
+        return (commands.EVENT_FINISHED, ()), 'She tells you her casino secrets. Your luck permanently increases.'
 
     def _handle_ghosh_encounter(self):
         ghosh_traits = self.game_config.special_units_traits.ghosh
@@ -115,7 +116,7 @@ class StateCharacterEvent(StateBase):
         'Fur': _handle_fur_encounter,
         'Selfi': _handle_selfi_encounter,
         'Mia': _handle_mia_encounter,
-        'Vivianne': _handle_vivianne_encounter,
+        'Vivian': _handle_vivian_encounter,
         'Ghosh': _handle_ghosh_encounter,
         'Beldo': _handle_beldo_encounter
     }

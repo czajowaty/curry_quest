@@ -388,7 +388,7 @@ class Config:
             self._validate_weights_dictionary(
                 'character_events_weights',
                 self._config.character_events_weights,
-                ['Cherrl', 'Nico', 'Patty', 'Fur', 'Selfi', 'Mia', 'Vivianne', 'Ghosh', 'Beldo'])
+                ['Cherrl', 'Nico', 'Patty', 'Fur', 'Selfi', 'Mia', 'Vivian', 'Ghosh', 'Beldo'])
 
         def _validate_traps_weights(self):
             self._validate_weights_dictionary(
