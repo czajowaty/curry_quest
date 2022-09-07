@@ -394,7 +394,7 @@ class Unit(Jsonable):
         if self.genus.is_weak_against(other.genus):
             self.genus = other.genus
         self.hp = min(self.hp, self.max_hp)
-        self.mp = (self.mp + other.mp) // 2
+        self.mp = min((self.mp + other.mp) // 2, self.max_mp)
         self._handle_spell_on_fusion(other)
 
     def _handle_spell_on_fusion(self, other: '__class__'):
