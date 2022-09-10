@@ -232,10 +232,15 @@ def create_genus_seed_class(name: str, genus: Genus):
 
         def use(self, context: UnitActionContext) -> str:
             target = context.target
-            target.genus = genus
+            change_genus = target.genus != Genus.Empty
+            if change_genus:
+                target.genus = genus
             target.mp += 3
             target_words = context.target_words
-            return f'{target_words.possessive_name.capitalize()} genus changed to {genus.name}.'
+            if change_genus:
+                return f'{target_words.possessive_name.capitalize()} genus changed to {genus.name}.'
+            else:
+                return 'It has no effect.'
 
     return GenusSeed
 

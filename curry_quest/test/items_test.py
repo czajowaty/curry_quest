@@ -345,11 +345,22 @@ class LightSeedTest(
         self._use_on_enemy()
         self.assertEqual(self._enemy.genus, Genus.Fire)
 
+    def test_when_used_on_non_genus_familiar_then_genus_is_not_changed(self):
+        self._familiar.genus = Genus.Empty
+        self._use_on_familiar()
+        self.assertEqual(self._familiar.genus, Genus.Empty)
+
     def test_response_when_used_on_familiar(self):
+        self._familiar.genus = Genus.Water
         self.assertEqual(self._use_on_familiar(), 'Your genus changed to Fire.')
 
     def test_response_when_used_on_enemy(self):
+        self._enemy.genus = Genus.Wind
         self.assertEqual(self._use_on_enemy(), 'Monster\'s genus changed to Fire.')
+
+    def test_response_when_used_on_no_genus_famliar(self):
+        self._familiar.genus = Genus.Empty
+        self.assertEqual(self._use_on_familiar(), 'It has no effect.')
 
 
 class SeaSeedTest(
@@ -370,11 +381,22 @@ class SeaSeedTest(
         self._use_on_enemy()
         self.assertEqual(self._enemy.genus, Genus.Water)
 
+    def test_when_used_on_non_genus_familiar_then_genus_is_not_changed(self):
+        self._familiar.genus = Genus.Empty
+        self._use_on_familiar()
+        self.assertEqual(self._familiar.genus, Genus.Empty)
+
     def test_response_when_used_on_familiar(self):
+        self._familiar.genus = Genus.Fire
         self.assertEqual(self._use_on_familiar(), 'Your genus changed to Water.')
 
     def test_response_when_used_on_enemy(self):
+        self._enemy.genus = Genus.Wind
         self.assertEqual(self._use_on_enemy(), 'Monster\'s genus changed to Water.')
+
+    def test_response_when_used_on_no_genus_famliar(self):
+        self._familiar.genus = Genus.Empty
+        self.assertEqual(self._use_on_familiar(), 'It has no effect.')
 
 
 class WindSeedTest(
@@ -391,15 +413,26 @@ class WindSeedTest(
         self.assertEqual(self._familiar.genus, Genus.Wind)
 
     def test_when_used_on_enemy_then_enemy_genus_is_changed_to_wind(self):
-        self._enemy.genus = Genus.Wind
+        self._enemy.genus = Genus.Water
         self._use_on_enemy()
         self.assertEqual(self._enemy.genus, Genus.Wind)
 
+    def test_when_used_on_non_genus_familiar_then_genus_is_not_changed(self):
+        self._familiar.genus = Genus.Empty
+        self._use_on_familiar()
+        self.assertEqual(self._familiar.genus, Genus.Empty)
+
     def test_response_when_used_on_familiar(self):
+        self._familiar.genus = Genus.Fire
         self.assertEqual(self._use_on_familiar(), 'Your genus changed to Wind.')
 
     def test_response_when_used_on_enemy(self):
+        self._enemy.genus = Genus.Water
         self.assertEqual(self._use_on_enemy(), 'Monster\'s genus changed to Wind.')
+
+    def test_response_when_used_on_no_genus_famliar(self):
+        self._familiar.genus = Genus.Empty
+        self.assertEqual(self._use_on_familiar(), 'It has no effect.')
 
 
 class AllItemsTest(unittest.TestCase):

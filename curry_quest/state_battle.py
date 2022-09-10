@@ -647,7 +647,7 @@ class StateBattleConfusedUnitTurn(StateBattlePhaseBase):
         if not acting_unit.has_enough_mp_for_ability_use():
             return None
         action_handler, action_context = self._context.create_ability_without_target(user=acting_unit)
-        
+
         def create_action_context():
             self._fill_unit_action_context(action_context, action_handler)
             return action_context

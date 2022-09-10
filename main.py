@@ -10,7 +10,6 @@ import logging.handlers
 import traceback
 import sys
 
-
 class CurryQuestDiscordClient(discord.Client):
     def __init__(
             self,
