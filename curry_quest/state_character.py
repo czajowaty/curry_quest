@@ -67,9 +67,13 @@ class StateCharacterEvent(StateBase):
                 'She wanted to offer you an item exchange, but you don\'t have any items... ' \
                 'She scoffs at your lack of preparation and walks off.'
         else:
-            item = self._context.rng.choice(items.all_items())
+            item = self._context.random_selection_with_weights(self._found_items_weights())
             self._context.buffer_item(item)
             return (commands.START_ITEM_TRADE, ()), 'She offers you an item exchange.'
+
+    def _found_items_weights(self):
+        items_weights = self._context.items_weights
+        return {item: items_weights[item.name] for item in items.all_items()}
 
     def _handle_selfi_encounter(self):
         familiar_for_trade_traits = self._context.rng.choice(self._create_selfi_familiars_list())
