@@ -1,6 +1,7 @@
 from abc import abstractmethod
 from curry_quest.genus import Genus
 from curry_quest.jsonable import InvalidJson, Jsonable, JsonReaderHelper
+from curry_quest.statuses import Statuses
 from curry_quest.unit_action import UnitActionContext
 
 
@@ -198,6 +199,8 @@ class FireBall(BattlePhaseOnlyItem, EnemyOnlyItem):
 
     def use(self, context: UnitActionContext) -> str:
         enemy = context.state_machine_context.battle_context.enemy
+        if enemy.has_status(Statuses.Invincible):
+            return f'Flames spew forth from the {self.name}, but they have no effect.'
         damage = enemy.max_hp // 2
         enemy.deal_damage(damage)
         return f'Flames spew forth from the {self.name} dealing {damage} damage. ' \

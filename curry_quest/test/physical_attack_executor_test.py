@@ -196,6 +196,31 @@ class PhysicalAttackExecutorTest(unittest.TestCase):
         self._test_damage_calculator_args(attacker=self._familiar, defender=self._enemy, damage=15, critical_hit=False)
         self.assertEqual(self._familiar.hp, 30)
 
+    def _test_execute_on_target_with_invincible_status(self, attacker=None, defender=None):
+        self._does_action_succeed_mock.return_value = True
+        defender.set_status(Statuses.Invincible)
+        with patch('curry_quest.physical_attack_executor.DamageCalculator') as DamageCalculatorMock:
+            damage_calculator_mock = DamageCalculatorMock.return_value
+            damage_calculator_mock.physical_damage.return_value = 20
+            self._rng.choices.return_value = (1,)
+            return self._test_execute(performer=attacker, target=defender)
+
+    def test_when_defender_has_invincible_status_then_hp_is_not_decreased(self):
+        self._enemy.hp = 30
+        self._test_execute_on_target_with_invincible_status(attacker=self._familiar, defender=self._enemy)
+        self.assertEqual(self._enemy.hp, 30)
+
+    def test_response_when_enemy_defender_has_invincible_status(self):
+        self.assertEqual(
+            self._test_execute_on_target_with_invincible_status(attacker=self._familiar, defender=self._enemy),
+            'You try attacking, but it has no effect.')
+
+    def test_response_when_familiar_defender_has_invincible_status(self):
+        self._enemy.name = 'enemy'
+        self.assertEqual(
+            self._test_execute_on_target_with_invincible_status(attacker=self._enemy, defender=self._familiar),
+            'Enemy tries attacking, but it has no effect.')
+
     def test_when_defender_has_electric_shock_talent_then_attacker_takes_quarter_of_reflected_damage(self):
         self._familiar.hp = 30
         self._enemy._talents |= Talents.ElectricShock

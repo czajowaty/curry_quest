@@ -49,10 +49,13 @@ class PhysicalAttackExecutor:
             return self._no_target_response()
         if not self._is_attack_accurate():
             return self._miss_response()
-        attack_descriptor = self._perform_attack()
-        response = self._hit_response(attack_descriptor)
+        relative_height = self._select_relative_height()
+        if self.defender.has_status(Statuses.Invincible):
+            return self._invincible_target_response()
+        damage, is_critical = self._perform_attack(relative_height)
+        response = self._hit_response_prefix(relative_height, is_critical)
+        response += self._hit_damage_response(damage)
         if self.defender.talents.has(Talents.ElectricShock):
-            damage, _, _ = attack_descriptor
             response += ' '
             response += self._deal_shock_damage(damage)
         response += self._handle_potential_debuffs_recovery()
@@ -79,6 +82,10 @@ class PhysicalAttackExecutor:
         defender_words = self.defender_words
         return f'{attacker_words.name.capitalize()} {attacker_words.ies_verb("try")} to hit {defender_words.name}, ' \
             f'but {defender_words.pronoun} {defender_words.s_verb("dodge")} swiftly.'
+
+    def _invincible_target_response(self):
+        attacker_words = self.attacker_words
+        return f'{attacker_words.name.capitalize()} {attacker_words.ies_verb("try")} attacking, but it has no effect.'
 
     def _select_damage_roll(self) -> DamageRoll:
         return self._context.rng.choices([DamageRoll.Low, DamageRoll.Normal, DamageRoll.High], weights=[1, 2, 1])[0]
@@ -109,9 +116,8 @@ class PhysicalAttackExecutor:
         crit_chance = (self.attacker.luck // divider + 1) / 128
         return self._context.does_action_succeed(success_chance=crit_chance)
 
-    def _perform_attack(self):
+    def _perform_attack(self, relative_height: RelativeHeight):
         damage_calculator = DamageCalculator(self.attacker, self.defender)
-        relative_height = self._select_relative_height()
         is_critical = self._select_whether_attack_is_critical()
         damage = damage_calculator.physical_damage(
             self._select_damage_roll(),
@@ -119,12 +125,10 @@ class PhysicalAttackExecutor:
             is_critical,
             self._weapon_damage)
         self.defender.deal_damage(damage)
-        return damage, relative_height, is_critical
+        return damage, is_critical
 
-    def _hit_response(self, physical_attack_descriptor):
-        damage, relative_height, is_critical = physical_attack_descriptor
+    def _hit_response_prefix(self, relative_height: RelativeHeight, is_critical: bool):
         attacker_words = self.attacker_words
-        defender_words = self.defender_words
         response = f'{attacker_words.name.capitalize()} {attacker_words.s_verb("hit")} '
         if is_critical:
             response += 'hard '
@@ -132,9 +136,12 @@ class PhysicalAttackExecutor:
             response += 'from above '
         elif relative_height is RelativeHeight.Lower:
             response += 'from below '
-        response += f'dealing {damage} damage. {defender_words.name.capitalize()} {defender_words.have_verb}' \
-            f' {self.defender.hp} HP left.'
         return response
+
+    def _hit_damage_response(self, damage: int):
+        defender_words = self.defender_words
+        return f'dealing {damage} damage. {defender_words.name.capitalize()} {defender_words.have_verb}' \
+            f' {self.defender.hp} HP left.'
 
     def _deal_shock_damage(self, original_damage):
         shock_damage = max(original_damage // 4, 1)

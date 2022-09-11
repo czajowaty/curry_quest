@@ -437,6 +437,17 @@ class StateBattlePhaseTest(StateBattleStartedTestBase):
         self._test_battle_not_finished(is_player_turn=True)
         self._assert_responses('Enemy_unit no longer reflects wind spells.')
 
+    def test_response_on_invincibility_status_clearing_for_familiar(self):
+        self._familiar.set_timed_status(Statuses.Invincible, duration=1)
+        self._test_battle_not_finished(is_player_turn=False)
+        self._assert_responses('You no longer are invincible.')
+
+    def test_response_on_invincibility_status_clearing_for_monster(self):
+        self._enemy.name = 'enemy_unit'
+        self._enemy.set_timed_status(Statuses.Invincible, duration=1)
+        self._test_battle_not_finished(is_player_turn=True)
+        self._assert_responses('Enemy_unit no longer is invincible.')
+
     def test_on_status_clear_unit_does_no_longer_have_a_status(self):
         self._familiar.set_timed_status(Statuses.Confuse, duration=1)
         self.assertTrue(self._familiar.has_status(Statuses.Confuse))
@@ -492,6 +503,20 @@ class StateBattlePhaseTest(StateBattleStartedTestBase):
         self._familiar.max_hp = 40
         self._familiar.set_timed_status(Statuses.Poison, duration=2)
         self._test_status_effect(is_familiar_next_one_to_act=True, familiar_hp=1)
+        self._assert_responses()
+
+    def test_poison_damage_is_not_done_when_unit_has_invincible_status(self):
+        self._familiar.max_hp = 40
+        self._familiar.set_timed_status(Statuses.Poison, duration=1)
+        self._familiar.set_status(Statuses.Invincible)
+        self._test_status_effect(is_familiar_next_one_to_act=True, familiar_hp=20)
+        self.assertEqual(self._familiar.hp, 20)
+
+    def test_poison_effect_response_when_unit_has_invincible_status(self):
+        self._familiar.max_hp = 40
+        self._familiar.set_timed_status(Statuses.Poison, duration=2)
+        self._familiar.set_status(Statuses.Invincible)
+        self._test_status_effect(is_familiar_next_one_to_act=True, familiar_hp=20)
         self._assert_responses()
 
     def test_sleep_effect_on_familiar_response(self):
@@ -1117,7 +1142,7 @@ class StateBattleEnemyTurnTest(StateBattleStartedTestBase):
         self._test_on_enter()
         ability.use.assert_called_once()
         return ability
-        
+
     def test_action_on_ability(self):
         self._test_ability_use()
         self._assert_action(commands.BATTLE_ACTION_PERFORMED)

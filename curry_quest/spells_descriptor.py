@@ -26,8 +26,10 @@ class DamageSpellHandler(SpellHandler):
         return True, ''
 
     def cast(self, spell_cast_context: SpellCastContext) -> str:
-        attacker = spell_cast_context.performer
         defender = spell_cast_context.target
+        if defender.has_status(Statuses.Invincible):
+            return 'It has no effect.'
+        attacker = spell_cast_context.performer
         damage = DamageCalculator(attacker, defender).spell_damage(self._raw_spell_damage)
         defender.deal_damage(damage)
         return self._spell_attack_response(spell_cast_context, damage)
@@ -167,6 +169,15 @@ class MirrorSpellHandler(ApplyBuffSpellHandler):
     def _create_response(self, spell_cast_context: SpellCastContext):
         target_words = spell_cast_context.target_words
         return f'{target_words.name.capitalize()} {target_words.s_verb("reflect")} {self._reflect_label} spells.'
+
+
+class DarkWaveSpellHandler(ApplyBuffSpellHandler):
+    def __init__(self):
+        super().__init__(buff_status=Statuses.Invincible, static_buff_duration=3, random_buff_duration_upper_limit=0)
+
+    def _create_response(self, spell_cast_context: SpellCastContext):
+        target_words = spell_cast_context.target_words
+        return f'{target_words.name.capitalize()} {target_words.s_verb("become")} invincible.'
 
 
 class HpRecoverySpellHandler(SpellHandler):
@@ -457,6 +468,12 @@ class WindSpellNameCreator(SpellNameCreator):
 
 
 SPELLS_DESCRIPTOR = {
+    Genus.Empty: {
+        'DarkWave': {
+            'mp_cost': 20,
+            'cast_handler': {'generic': DarkWaveSpellHandler()}
+        }
+    },
     Genus.Fire: {
         'Breath': {
             'mp_cost': 12,
@@ -603,7 +620,22 @@ SPELLS_DESCRIPTOR = {
 def create_spells_traits():
     spells_traits = {}
 
-    def update_spells_traits(genus: Genus, spell_name_creator_class: Type[SpellNameCreator]):
+    for spell_base_name, spell_descriptor in SPELLS_DESCRIPTOR[Genus.Empty].items():
+        cast_handler_descriptor = spell_descriptor['cast_handler']
+        spell_traits = SpellTraits()
+        spell_traits.base_name = spell_base_name
+        spell_traits.name = spell_base_name
+        spell_traits.native_genus = Genus.Empty
+        spell_traits.mp_cost = spell_descriptor['mp_cost']
+        spell_traits.handler = cast_handler_descriptor.get('generic')
+        spells_traits[spell_base_name] = {
+            Genus.Empty: spell_traits,
+            Genus.Fire: spell_traits,
+            Genus.Water: spell_traits,
+            Genus.Wind: spell_traits
+        }
+
+    def update_genus_spells_traits(genus: Genus, spell_name_creator_class: Type[SpellNameCreator]):
         elemental_spells_descriptor = SPELLS_DESCRIPTOR[genus]
         for spell_base_name, spell_descriptor in elemental_spells_descriptor.items():
             spell_name_creator = spell_name_creator_class(spell_base_name)
@@ -631,12 +663,13 @@ def create_spells_traits():
                 return spell_traits
 
             spells_traits[spell_base_name] = {
+                Genus.Empty: None,
                 Genus.Fire: create_spell_traits(spell_name_creator.fire(), cast_handler_descriptor.get('fire')),
                 Genus.Water: create_spell_traits(spell_name_creator.water(), cast_handler_descriptor.get('water')),
                 Genus.Wind: create_spell_traits(spell_name_creator.wind(), cast_handler_descriptor.get('wind'))
             }
 
-    update_spells_traits(Genus.Fire, FireSpellNameCreator)
-    update_spells_traits(Genus.Water, WaterSpellNameCreator)
-    update_spells_traits(Genus.Wind, WindSpellNameCreator)
+    update_genus_spells_traits(Genus.Fire, FireSpellNameCreator)
+    update_genus_spells_traits(Genus.Water, WaterSpellNameCreator)
+    update_genus_spells_traits(Genus.Wind, WindSpellNameCreator)
     return spells_traits

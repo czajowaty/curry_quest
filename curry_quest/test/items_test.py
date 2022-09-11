@@ -302,6 +302,13 @@ class FireBallTest(ItemTestBase, BattlePhaseOnlyItemTester, EnemyOnlyItemTester)
         self._call_use()
         self.assertEqual(self._enemy.hp, 3)
 
+    def test_when_target_has_invincible_status_then_damage_is_neglected(self):
+        self._enemy.hp = 18
+        self._enemy.max_hp = 30
+        self._enemy.set_status(Statuses.Invincible)
+        self._call_use()
+        self.assertEqual(self._enemy.hp, 18)
+
     def test_response_when_used(self):
         self._enemy.hp = 25
         self._enemy.max_hp = 37
@@ -309,6 +316,14 @@ class FireBallTest(ItemTestBase, BattlePhaseOnlyItemTester, EnemyOnlyItemTester)
         self.assertEqual(
             self._call_use(),
             'Flames spew forth from the Fire Ball dealing 18 damage. Enemy has 7 HP left.')
+
+    def test_response_when_used_on_target_with_invincible_status(self):
+        self._enemy.hp = 18
+        self._enemy.max_hp = 30
+        self._enemy.set_status(Statuses.Invincible)
+        self.assertEqual(
+            self._call_use(),
+            'Flames spew forth from the Fire Ball, but they have no effect.')
 
 
 class WaterCrystalTest(ItemTestBase, AlwaysUsableItemTester, FamiliarOnlyItemTester):

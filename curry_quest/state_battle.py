@@ -284,7 +284,7 @@ class StateBattlePhase(StateBattlePhaseBase):
 
     def _apply_common_statuses_effects(self):
         unit_to_act = self._acting_unit()
-        if unit_to_act.has_status(Statuses.Poison):
+        if unit_to_act.has_status(Statuses.Poison) and not unit_to_act.has_status(Statuses.Invincible):
             self._apply_poison_damage(unit_to_act)
 
     def _apply_poison_damage(self, unit: Unit):
@@ -311,6 +311,8 @@ class StateBattlePhase(StateBattlePhaseBase):
             return self._prepare_element_protection_status_clear_response(unit, status)
         elif status in [Statuses.FireReflect, Statuses.Reflect, Statuses.WindReflect]:
             return self._prepare_reflect_status_clear_response(unit, status)
+        elif status == Statuses.Invincible:
+            return self._prepare_invincible_clear_response(unit)
         else:
             return self._prepare_unknown_status_clear_response(unit, status)
 
@@ -359,6 +361,10 @@ class StateBattlePhase(StateBattlePhaseBase):
             response += ' '
         response += 'spells.'
         return response
+
+    def _prepare_invincible_clear_response(self, unit):
+        unit_words = self._unit_words(unit)
+        return f'{unit_words.name.capitalize()} no longer {unit_words.be_verb} invincible.'
 
     def _prepare_unknown_status_clear_response(self, unit, status):
         return f'You no longer have {status}.'

@@ -123,6 +123,14 @@ class DamagingSpellTester(OtherUnitCastTester, CanAlwaysCastTester):
             damage_calculator_mock.spell_damage.assert_called_once()
             return response, DamageCalculatorMock.call_args.args, damage_calculator_mock.spell_damage.call_args.args
 
+    def test_cast_reduces_target_hp(self):
+        self._state_machine_context.familiar = self._caster
+        self._target.name = 'target_unit'
+        self._target.hp = 30
+        self._target.max_hp = 30
+        self._test_cast(damage=6)
+        self.assertEqual(self._target.hp, 24)
+
     def test_cast_response_when_target_is_monster(self):
         self._state_machine_context.familiar = self._caster
         self._target.name = 'target_unit'
@@ -142,6 +150,26 @@ class DamagingSpellTester(OtherUnitCastTester, CanAlwaysCastTester):
     def test_cast_damage_calculator_args(self):
         _, damage_calculator_args, _ = self._test_cast()
         self.assertEqual(damage_calculator_args, (self._caster, self._target))
+
+    def _test_cast_on_invincible_target(self):
+        self._target.set_status(Statuses.Invincible)
+        with patch('curry_quest.spells_descriptor.DamageCalculator') as DamageCalculatorMock:
+            damage_calculator_mock = DamageCalculatorMock.return_value
+            damage_calculator_mock.spell_damage.return_value = 10
+            return self._call_cast()
+
+    def test_cast_does_not_change_target_hp(self):
+        self._state_machine_context.familiar = self._caster
+        self._target.name = 'target_unit'
+        self._target.max_hp = 20
+        self._target.hp = 20
+        self._test_cast_on_invincible_target()
+        self.assertEqual(self._target.hp, 20)
+
+    def test_cast_response_when_target_invincible_status(self):
+        self._state_machine_context.familiar = self._caster
+        self._target.name = 'target_unit'
+        self.assertEqual(self._test_cast_on_invincible_target(), 'It has no effect.')
 
 
 class NativeFireDamagingSpellTester(NativeFireSpellTester, DamagingSpellTester):
@@ -1393,6 +1421,53 @@ class LoGraveTest(SpellTestBase, GraveTester):
     @classmethod
     def _spell_selector(cls):
         return 'Grave', Genus.Wind
+
+
+class DarkWaveTester(SelfCastTester, CanAlwaysCastTester):
+    _SPELL_NAME = 'DarkWave'
+    _NATIVE_GENUS = Genus.Empty
+    _MP_COST = 20
+
+    def test_status_duration(self):
+        self._call_cast()
+        self.assertEqual(
+            self._target.status_duration(Statuses.Invincible),
+            {Statuses.Invincible: 3})
+
+    def test_cast_response_on_familiar(self):
+        self._state_machine_context.familiar = self._target
+        response = self._call_cast()
+        self.assertEqual(response, f'You become invincible.')
+
+    def test_cast_response_on_monster(self):
+        self._target.name = 'target_unit'
+        self._state_machine_context.familiar = self._caster
+        response = self._call_cast()
+        self.assertEqual(response, f'Target_unit becomes invincible.')
+
+
+class DarkWaveTest(SpellTestBase, DarkWaveTester):
+    @classmethod
+    def _spell_selector(cls):
+        return 'DarkWave', Genus.Empty
+
+
+class FireDarkWaveTest(SpellTestBase, DarkWaveTester):
+    @classmethod
+    def _spell_selector(cls):
+        return 'DarkWave', Genus.Fire
+
+
+class WaterDarkWaveTest(SpellTestBase, DarkWaveTester):
+    @classmethod
+    def _spell_selector(cls):
+        return 'DarkWave', Genus.Water
+
+
+class WindDarkWaveTest(SpellTestBase, DarkWaveTester):
+    @classmethod
+    def _spell_selector(cls):
+        return 'DarkWave', Genus.Wind
 
 
 if __name__ == '__main__':
