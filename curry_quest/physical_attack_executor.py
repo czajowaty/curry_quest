@@ -55,7 +55,7 @@ class PhysicalAttackExecutor:
         damage, is_critical = self._perform_attack(relative_height)
         response = self._hit_response_prefix(relative_height, is_critical)
         response += self._hit_damage_response(damage)
-        if self.defender.talents.has(Talents.ElectricShock):
+        if self.defender.talents.has(Talents.ElectricShock) and not self.attacker.has_status(Statuses.Invincible):
             response += ' '
             response += self._deal_shock_damage(damage)
         response += self._handle_potential_debuffs_recovery()

@@ -233,6 +233,13 @@ class PhysicalAttackExecutorTest(unittest.TestCase):
         self._test_damage_calculator_args(attacker=self._familiar, defender=self._enemy, damage=1, critical_hit=False)
         self.assertEqual(self._familiar.hp, 29)
 
+    def test_when_attacker_has_invincible_status_then_electric_shock_damage_has_no_effect(self):
+        self._familiar.hp = 30
+        self._familiar.set_status(Statuses.Invincible)
+        self._enemy._talents |= Talents.ElectricShock
+        self._test_damage_calculator_args(attacker=self._familiar, defender=self._enemy, damage=15, critical_hit=False)
+        self.assertEqual(self._familiar.hp, 30)
+
     def test_when_defender_has_sleep_status_then_it_may_be_recovered(self):
         self._enemy.set_timed_status(Statuses.Sleep, duration=4)
         self._test_damage_calculator_args(
@@ -363,6 +370,13 @@ class PhysicalAttackExecutorTest(unittest.TestCase):
             damage=24,
             response='You hit dealing 24 damage. Monster has 16 HP left. An electrical shock runs through your body '
             'dealing 6 damage. You have 24 HP left.')
+
+    def test_response_on_electric_shock_neglected_by_invincible_status(self):
+        self._familiar.set_status(Statuses.Invincible)
+        self._enemy._talents |= Talents.ElectricShock
+        self._test_familiar_attack_response(
+            damage=24,
+            response='You hit dealing 24 damage. Monster has 16 HP left.')
 
     def test_response_on_electric_shock_for_enemy_attack(self):
         self._familiar._talents |= Talents.ElectricShock
