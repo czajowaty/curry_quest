@@ -63,6 +63,8 @@ class CurryQuestDiscordClient(discord.Client):
             return
         if self._curry_quest_client.is_curry_quest_message(message):
             self._curry_quest_client.process_message(message)
+        else:
+            await self._process_commands(message)
 
     async def _process_commands(self, message: discord.Message):
         if not message.content.startswith("!"):
