@@ -43,7 +43,7 @@ class SeedsGenerator:
         return [self._create_adrando_link(seed_generator.next()) for _ in range(self._seeds_number)]
 
     def _create_adrando_link(self, seed):
-        return f"{self.RANDO_BASE}?{self._randomizer_params.params()},,{seed}"
+        return f"{self.RANDO_BASE}?{self._randomizer_params.params()},{seed}"
 
 
 class AdRandomizerParams:
@@ -116,6 +116,11 @@ class AdRandomizerParamsDescriptorSelector:
             'RM3T #5 Random Toolkit Tournament 2: State Display Edition',
             ManualRandomizerParams('BdDE:-2,fh:1,iIlnS:0,txX'),
             NoHiKewneSeedValidator()
+        ),
+        'riders': (
+            'Riders of the Sky Tournament',
+            ManualRandomizerParams('cdfFiltux,94b4'),
+            NoRestrictionsSeedValidator()
         )
     }
 

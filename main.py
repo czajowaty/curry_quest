@@ -10,6 +10,7 @@ import logging.handlers
 import traceback
 import sys
 
+
 class CurryQuestDiscordClient(discord.Client):
     def __init__(
             self,
@@ -81,7 +82,8 @@ class CurryQuestOfflineClient:
     EXIT_COMMAND = 'exit'
     JOIN_COMMAND = 'join'
     PART_COMMAND = 'part'
-    SPECIAL_COMMANDS = [EXIT_COMMAND, JOIN_COMMAND, PART_COMMAND]
+    SEED_COMMAND = 'seed'
+    SPECIAL_COMMANDS = [EXIT_COMMAND, JOIN_COMMAND, PART_COMMAND, SEED_COMMAND]
     PLAYER_ID = 1
 
     class InvalidCommand(Exception):
@@ -104,6 +106,9 @@ class CurryQuestOfflineClient:
                 self._controller.add_player(self.PLAYER_ID, 'Test player')
             elif command == self.PART_COMMAND:
                 self._controller.remove_player(self.PLAYER_ID)
+            elif command == self.SEED_COMMAND:
+                responses = RandoCommandHandler(args).handle()
+                print('\n'.join(responses))
             else:
                 if is_by_admin:
                     self._controller.handle_admin_action(self.PLAYER_ID, command, args)
@@ -123,7 +128,7 @@ class CurryQuestOfflineClient:
         if len(splitted) == 0:
             raise self.InvalidCommand('Cannot be empty.')
         if splitted[0] in self.SPECIAL_COMMANDS:
-            return True, self._build_command(command=splitted[0])
+            return True, self._build_command(command=splitted[0], args=splitted[1:])
         command, args = splitted[0], splitted[1:]
         if command == 'USER':
             if len(args) == 0:
