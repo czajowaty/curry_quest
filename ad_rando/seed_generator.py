@@ -164,21 +164,17 @@ class AdRandomizerParamsDescriptorSelector:
 
 class RandoCommandHandler:
     RANDO_LINKS = [SeedsGenerator.RANDO_BASE]
+    DEFAULT_PRESET_NAME = 'randomtoolkit'
 
     def __init__(self, args):
         self._args = args
 
     def handle(self):
-        if len(self._args) == 0:
-            return self._current_rando_seed_links()
-        preset_name = self._args[0]
+        preset_name = self._args[0] if len(self._args) > 0 else self.DEFAULT_PRESET_NAME
         if preset_name.startswith('preset'):
             return self._available_presets()
         else:
             return self._generate_seeds(preset_name)
-
-    def _current_rando_seed_links(self):
-        return ['Current rando seed links:'] + [f"Seed {i + 1}: <{link}>" for i, link in enumerate(self.RANDO_LINKS)]
 
     def _available_presets(self):
         return [
@@ -192,11 +188,13 @@ class RandoCommandHandler:
             params_descriptor = AdRandomizerParamsDescriptorSelector.select(preset_name)
             description, params, validator = params_descriptor
             seeds_number = self._parse_seeds_number()
-            RandoCommandHandler.RANDO_LINKS = SeedsGenerator(params, validator, seeds_number).generate()
-            return [f"Generating {seeds_number} {description} seeds...", "Rando seed links updated"] + \
-                self._current_rando_seed_links()
+            rando_links = SeedsGenerator(params, validator, seeds_number).generate()
+            return [f'Generating {seeds_number} {description} seeds...'] + self._formated_rando_seed_links(rando_links)
         except CurryError as exc:
-            return [exc.error_message, "Rando seed links NOT updated"]
+            return [exc.error_message]
+
+    def _formated_rando_seed_links(self, rando_links):
+        return [f'Seed {i}: <{link}>' for i, link in enumerate(rando_links, start=1)]
 
     def _parse_seeds_number(self):
         DEFAULT_SEEDS_NUMBER = 3
