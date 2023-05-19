@@ -104,10 +104,10 @@ class AdRandomizerParamsDescriptorSelector:
         'secondTower': 'Only Second Tower',
         'secondTowerRun': 'Speedrun Second Tower',
         'starsTournament': 'STARS Tournament',
-        'tournament': 'RM3T #2 Tournament'
+        'rm3t': 'RM3T #2 Tournament'
     }
     MANUAL_PRESETS = {
-        'randomToolkit': (
+        'rm3t3': (
             'RM3T #3 Random Toolkit Tournament',
             ManualRandomizerParams('dE:-2,fh:1,iInS:0,txX'),
             NoHiKewneSeedValidator()
@@ -121,6 +121,11 @@ class AdRandomizerParamsDescriptorSelector:
             'Riders of the Sky Tournament',
             ManualRandomizerParams('cdfFiltux'),
             NoRestrictionsSeedValidator()
+        ),
+        'randomtoolkit': (
+            'RM3T #6 Random Toolkit Tournament',
+            ManualRandomizerParams('dE:-2,fh:1,iIlnS:0,tux'),
+            NoHiKewneSeedValidator()
         )
     }
 
