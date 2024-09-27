@@ -187,7 +187,10 @@ class HallsOfFameHandler(Jsonable):
         try:
             with open(halls_of_fame_file_path, 'r') as f:
                 halls_of_fame_handler.from_json_object(json.load(f))
-        except (IOError, FileNotFoundError, json.JSONDecodeError) as exc:
+        except FileNotFoundError:
+            logger.info(f"Halls of fame file does not exist. Creating empty one.")
+            _save_halls_of_fame(halls_of_fame_handler)
+        except (IOError, json.JSONDecodeError) as exc:
             logger.info(f"Could not load Halls of Fame. {exc.__class__.__name__}: {exc}.")
         except InvalidJson as exc:
             logger.warning(f"Could not load Halls of Fame. {exc}")

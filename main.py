@@ -18,7 +18,9 @@ class CurryQuestDiscordClient(discord.Client):
             curry_quest_config: CurryQuestConfig,
             hall_of_fame_handler,
             state_files_handler):
-        super().__init__()
+        intents = discord.Intents.default()
+        intents.message_content = True
+        super().__init__(intents=intents)
         self._bot_config = bot_config
         curry_quest_controller = CurryQuestController(curry_quest_config, hall_of_fame_handler, state_files_handler)
         self._curry_quest_client = CurryQuest(curry_quest_controller, bot_config)
@@ -154,23 +156,24 @@ def parse_args():
     parser.add_argument('bot_config', type=argparse.FileType('r'))
     parser.add_argument('curry_quest_config', type=argparse.FileType('r'))
     parser.add_argument('halls_of_fame_file', type=str)
+    parser.add_argument('-l', '--log_file', default='curry_quest.log')
     parser.add_argument('-d', '--state_files_directory', default='.')
     parser.add_argument('--offline', action='store_true')
     return parser.parse_args()
 
 
-def configure_logger(stream_handler_logging_level):
+def configure_logger(args):
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     file_handler = logging.handlers.RotatingFileHandler(
-        'curry_quest.log',
+        args.log_file,
         maxBytes=megabytes_to_bytes(100),
         backupCount=1)
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
     stream_handler = logging.StreamHandler()
-    stream_handler.setLevel(stream_handler_logging_level)
+    stream_handler.setLevel(logging.DEBUG if args.offline else logging.INFO)
     stream_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
     root_logger.addHandler(stream_handler)
@@ -182,7 +185,7 @@ def megabytes_to_bytes(mb):
 
 def main():
     args = parse_args()
-    configure_logger(logging.DEBUG if args.offline else logging.INFO)
+    configure_logger(args)
     bot_config = BotConfig.Parser(args.bot_config).parse()
     curry_quest_config = CurryQuestConfig.Parser(args.curry_quest_config).parse()
     halls_of_fame_handler = HallsOfFameHandler.from_file(args.halls_of_fame_file)
