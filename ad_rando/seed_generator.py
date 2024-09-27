@@ -126,7 +126,13 @@ class AdRandomizerParamsDescriptorSelector:
             'RM3T #6 Random Toolkit Tournament',
             ManualRandomizerParams('dE:-2,fh:1,iIlnS:0,tux'),
             NoHiKewneSeedValidator()
+        ),
+        'roche': (
+            'Passionate Roche',
+            ManualRandomizerParams('dE:-2,fh:1,HiIlnS:0,tx'),
+            NoHiKewneSeedValidator()
         )
+            
     }
 
     @classmethod
